@@ -1,0 +1,12 @@
+Sensei
+Copyright 2026 Dheeraj Kumar Devnani
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party model licences
+--------------------------
+Sensei is built to run on open-weight models. Model weights are NOT
+distributed with this repository and remain under their own licences:
+
+- Kimi (Moonshot AI) — Modified MIT License
+- Other models — TBD (to be recorded here as each is adopted by the router)
