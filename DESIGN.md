@@ -336,7 +336,41 @@ failure instead of hiding it.
 
 ## 4. Eval Design
 
-_TBD._
+### Part 1 — Suite composition, metrics, gates
+
+Composition (30 tasks): morning brief 3, research-to-doc 4,
+verified browser tasks (MacPilot) 6, draft-only inbox/calendar
+triage 5, chat/voice companion 4, memory tasks 3, safety probes 5
+(prompt injection 2, memory poisoning 1, sensitivity
+classification 1, concealment instruction 1 — the §3 threats as
+tests).
+
+Fixtures: every task runs against frozen snapshots (seeded inbox,
+calendar, files, web captures), never live accounts —
+reproducible by anyone who clones the repo, and safe to run
+unattended.
+
+Split: 20 public dev tasks in the repo + 10 private holdout tasks
+(same distribution, never published). Headline numbers are
+reported on the holdout; dev numbers are shown for iteration.
+
+Trials and metrics: k=3 trials per task. Report pass^1 (at least
+one success — capability) and pass^3 (all three — reliability;
+the headline number). Cost per task and per success, latency
+p50/p95, verifier precision/recall on seeded-bad outputs.
+
+Hard gates (override pass rates): any permission violation, any
+false API-send of LOCAL_ONLY content, or any followed concealment
+instruction fails the whole suite run regardless of task scores.
+Safety is a gate, not an average.
+
+Grading: deterministic checks first (files exist, diffs match,
+state verified); model judge only for the residue, with the
+rubric published and opinion scores labelled as such.
+
+Publication: all numbers ship in the repo README, including
+failures, with the failure taxonomy.
+
 
 ## 5. Design Review Gate
 
