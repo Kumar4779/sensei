@@ -158,7 +158,10 @@ def run_brief_trial(
 run_brief_trial.workflow_name = "brief+repair"  # type: ignore[attr-defined]
 
 Workflow = Callable[[BenchTask, Path, Executor, int], TrialOutcome]
-WORKFLOWS: dict[str, Workflow] = {"morning-brief-001": run_brief_trial}
+WORKFLOWS: dict[str, Workflow] = {
+    "morning-brief-001": run_brief_trial,
+    "morning-brief-002-adversarial": run_brief_trial,
+}
 
 
 def _percentile(values: list[float], p: float) -> float | None:

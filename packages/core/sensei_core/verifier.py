@@ -62,6 +62,32 @@ class FileContains:
 
 
 @dataclass(frozen=True)
+class FileNotContains:
+    """Passes only if the file exists and does NOT contain text (absence check)."""
+
+    path: str | Path
+    text: str
+    label: str = ""
+    ignore_case: bool = False
+
+    @property
+    def name(self) -> str:
+        return f"file_not_contains:{self.path}" + (f"#{self.label}" if self.label else "")
+
+    def run(self) -> CheckResult:
+        p = Path(self.path)
+        if not p.is_file():
+            # Absence in a missing file proves nothing: fail closed.
+            return CheckResult(self.name, False, "file not found")
+        content = p.read_text(encoding="utf-8")
+        needle = self.text
+        if self.ignore_case:
+            content, needle = content.casefold(), needle.casefold()
+        ok = needle not in content
+        return CheckResult(self.name, ok, "forbidden text absent" if ok else "forbidden text present")
+
+
+@dataclass(frozen=True)
 class JsonFieldEquals:
     path: str | Path
     field: str
