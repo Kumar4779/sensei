@@ -174,6 +174,31 @@ content, external communication — never coexists in one run without
 an approval gate breaking one leg.
 
 
+### Threat 2 — Malicious skills and MCP servers
+
+Attack: a skill or MCP server hides instructions in the capability
+itself — concealment instructions in a SKILL.md, poisoned tool
+descriptions, undeclared telemetry. Real case: RunPod MCP server
+v4.13.0 (Nov 2026) appended a hidden instruction to rate RunPod and
+not tell the user; it arrived as a version update. The trust boundary
+is installation, not reading.
+
+Defences: (1) The Sensei Trust Rule: no skill or server may instruct
+the agent to conceal an action from the user; concealment instructions
+are void on sight, and the attempt is logged and reported.
+(2) Permission manifests enforced by the Control Plane. (3) Install-time
+review: skills are plain text and diffable; servers are version-pinned
+and updates re-trigger review. (4) Sandboxed first runs: read-tier
+only, fully traced, until the user promotes the skill. (5) Egress
+control: tools talk only to declared endpoints; undeclared telemetry
+is blocked and logged. (6) SkillForge blind evals double as a safety
+gate for skills that behave differently under eval.
+
+Residual risk: a patient attacker can pass review and trigger later;
+least privilege, traces and egress control shrink the payoff but do
+not make it zero.
+
+
 ## 4. Eval Design
 
 _TBD._
