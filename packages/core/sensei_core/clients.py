@@ -66,3 +66,34 @@ def list_ollama_models(base_url: str = OLLAMA_BASE_URL, timeout: float = 5.0) ->
         reason = getattr(e, "reason", e)
         raise OllamaUnavailable(f"cannot reach Ollama at {base_url}: {reason}") from e
     return [m["name"] for m in data.get("models", []) if "name" in m]
+
+
+def choose_local_model(requested: str | None, configured: str) -> tuple[str, str | None]:
+    """Pick a pulled Ollama model: requested, else configured, else any Qwen, else the first.
+
+    Returns (model, note); note explains a fallback. Raises OllamaUnavailable
+    saying exactly what is missing.
+    """
+    import shutil
+
+    if shutil.which("ollama") is None:
+        raise OllamaUnavailable("Ollama is not installed: install it from https://ollama.com, then run `ollama serve`.")
+    try:
+        pulled = list_ollama_models()
+    except OllamaUnavailable as e:
+        raise OllamaUnavailable(f"Ollama server is not running ({e}). Start it with `ollama serve` or the Ollama app.") from None
+    if not pulled:
+        raise OllamaUnavailable("Ollama is running but no model is pulled (`ollama list` is empty). Try `ollama pull qwen3`.")
+    if requested:
+        if requested not in pulled:
+            raise OllamaUnavailable(f"Model {requested!r} is not pulled. Pulled models: {', '.join(pulled)}")
+        return requested, None
+    if configured in pulled:
+        return configured, None
+    for name in pulled:
+        if name.startswith("qwen"):
+            return name, None
+    return pulled[0], (
+        f"configured model {configured!r} and no Qwen model are pulled; "
+        f"using {pulled[0]!r}. Pulled: {', '.join(pulled)}"
+    )

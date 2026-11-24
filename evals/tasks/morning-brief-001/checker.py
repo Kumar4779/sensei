@@ -1,6 +1,6 @@
 """SenseiBench checker for morning-brief-001.
 
-Usage:  python checker.py path/to/brief.md
+Usage:  python checker.py path/to/brief.md [--json]
 
 Verifies the produced brief against this task's fixture (final state,
 never the transcript): the file exists, every calendar event title
@@ -14,6 +14,7 @@ grade the workflow with the workflow's own check list.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -42,13 +43,20 @@ def check(brief_path: str | Path, fixture_dir: str | Path = FIXTURE_DIR) -> Veri
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("usage: python checker.py path/to/brief.md", file=sys.stderr)
-        return 2
-    report = check(argv[1])
-    for r in report.results:
-        print(f"{'PASS' if r.passed else 'FAIL'}  {r.name}  ({r.detail})")
-    print(f"morning-brief-001: {'PASS' if report.passed else 'FAIL'}")
+    parser = argparse.ArgumentParser(prog="checker.py", description="morning-brief-001 checker")
+    parser.add_argument("brief", help="path to the produced brief.md")
+    parser.add_argument("--json", action="store_true", help="print the report as JSON (machine-readable)")
+    try:
+        args = parser.parse_args(argv[1:])
+    except SystemExit as e:
+        return 2 if e.code else 0
+    report = check(args.brief)
+    if args.json:
+        print(json.dumps({"task": "morning-brief-001", **report.to_dict()}))
+    else:
+        for r in report.results:
+            print(f"{'PASS' if r.passed else 'FAIL'}  {r.name}  ({r.detail})")
+        print(f"morning-brief-001: {'PASS' if report.passed else 'FAIL'}")
     return 0 if report.passed else 1
 
 

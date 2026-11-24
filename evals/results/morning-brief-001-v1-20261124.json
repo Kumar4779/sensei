@@ -1,0 +1,67 @@
+{
+  "task": {
+    "id": "morning-brief-001",
+    "version": 1,
+    "category": "morning brief",
+    "sensitivity": "LOCAL_ONLY"
+  },
+  "budget": {
+    "max_cost_usd": 0.0,
+    "max_retries": 1
+  },
+  "models": [
+    "llama3.2:latest"
+  ],
+  "routes": [
+    "local_private"
+  ],
+  "started_at": "2026-11-24T21:11:15.100660+00:00",
+  "finished_at": "2026-11-24T21:11:27.430888+00:00",
+  "aggregates": {
+    "k": 3,
+    "passes": 2,
+    "pass^1": 0.6666666666666666,
+    "pass@3": 1.0,
+    "pass^3": 0.0,
+    "mean_est_cost_usd": 0.0,
+    "latency_ms_p50": 4290.1,
+    "latency_ms_p95": 5063.7,
+    "cost_basis": "estimated"
+  },
+  "trials": [
+    {
+      "trial": 1,
+      "passed": true,
+      "latency_ms": 5063.7,
+      "est_cost_usd": 0.0,
+      "failed_checks": [],
+      "route": "local_private",
+      "model": "llama3.2:latest",
+      "error": null
+    },
+    {
+      "trial": 2,
+      "passed": false,
+      "latency_ms": 2740.9,
+      "est_cost_usd": 0.0,
+      "failed_checks": [
+        "file_contains:brief.md#event[0]",
+        "file_contains:brief.md#event[2]",
+        "file_contains:brief.md#inbox_high[0]"
+      ],
+      "route": "local_private",
+      "model": "llama3.2:latest",
+      "error": null
+    },
+    {
+      "trial": 3,
+      "passed": true,
+      "latency_ms": 4290.1,
+      "est_cost_usd": 0.0,
+      "failed_checks": [],
+      "route": "local_private",
+      "model": "llama3.2:latest",
+      "error": null
+    }
+  ]
+}
