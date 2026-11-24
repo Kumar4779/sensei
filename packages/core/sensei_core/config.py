@@ -27,6 +27,7 @@ class Route:
     sensitivity: frozenset[str]
     max_sensitivity: str
     est_cost_per_1k_tokens: float
+    think: bool | None = None  # None = omit, use the server's default
 
 
 def _parse_route(name: str, raw: Any) -> Route:
@@ -64,6 +65,10 @@ def _parse_route(name: str, raw: Any) -> Route:
     if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost < 0:
         raise ConfigError(f"route {name!r} est_cost_per_1k_tokens must be a non-negative number")
 
+    think = raw.get("think")
+    if think is not None and not isinstance(think, bool):
+        raise ConfigError(f"route {name!r} think must be true or false when set")
+
     return Route(
         name=name,
         provider=str(raw["provider"]),
@@ -72,6 +77,7 @@ def _parse_route(name: str, raw: Any) -> Route:
         sensitivity=frozenset(sensitivity),
         max_sensitivity=max_sensitivity,
         est_cost_per_1k_tokens=float(cost),
+        think=think,
     )
 
 

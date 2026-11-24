@@ -6,6 +6,7 @@
 #              LOCAL_ONLY content may only go to a local tier.
 # max_sensitivity:        most sensitive class the route may receive.
 # est_cost_per_1k_tokens: USD placeholder for cost-aware routing; not real pricing.
+# think (optional):      Ollama thinking mode; omit to use the server default.
 
 [routes.local_private]
 provider = "ollama"
@@ -14,6 +15,11 @@ tier = "local"
 sensitivity = ["LOCAL_ONLY", "API_OK"]
 max_sensitivity = "LOCAL_ONLY"
 est_cost_per_1k_tokens = 0.0
+# think = false: Slice 15 experiment, morning-brief-001 only (qwen3:8b, 3 trials each, same session):
+#   think unset: pass^3 1.00, p50 34.5 s, p95 37.7 s  (evals/results/morning-brief-001-v1-20261124-4.json)
+#   think false: pass^3 1.00, p50  9.5 s, p95  9.9 s  (evals/results/morning-brief-001-v1-20261124-5.json)
+# Measured on one summarisation task; not evidence for other task types.
+think = false
 
 [routes.cheap_api]
 provider = "kimi"

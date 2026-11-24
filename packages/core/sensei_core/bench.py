@@ -71,6 +71,8 @@ class BenchReport:
     finished_at: str
     aggregates: dict[str, Any] = field(default_factory=dict)
     workflow: str | None = None
+    # Run settings that change behaviour but not the task, e.g. {"local_private.think": False}.
+    settings: dict[str, Any] = field(default_factory=dict)
 
 
 def load_task(task_dir: str | Path) -> BenchTask:
@@ -243,6 +245,7 @@ def report_to_dict(report: BenchReport, artifacts: dict[int, str] | None = None)
     return {
         "task": {"id": t.id, "version": t.version, "category": t.category, "sensitivity": t.sensitivity},
         "workflow": report.workflow or "brief",
+        "settings": report.settings,
         "budget": {"max_cost_usd": t.max_cost_usd, "max_retries": t.max_retries},
         "models": sorted({o.model for o in report.trials if o.model}),
         "routes": sorted({o.route for o in report.trials if o.route}),
@@ -298,6 +301,7 @@ def format_summary(report: BenchReport, results_path: Path | None = None) -> str
     lines = [
         f"SenseiBench  {report.task.id} v{report.task.version}  ({report.task.category}, {report.task.sensitivity})",
         f"workflow: {d['workflow']}   model: {', '.join(d['models']) or '-'}   route: {', '.join(d['routes']) or '-'}   trials: {k}",
+        *([f"settings: " + ", ".join(f"{key}={'unset' if v is None else v}" for key, v in d["settings"].items())] if d["settings"] else []),
         "",
         f"{'trial':<6}{'result':<8}{'tries':>6}{'latency':>10}{'est cost':>12}  failed checks / error",
     ]
@@ -348,12 +352,13 @@ def main(argv: list[str] | None = None) -> int:
     executor = Executor(
         Router(routes),
         {
-            "local_private": OllamaClient(model),
+            "local_private": OllamaClient.for_route(routes["local_private"]),
             "cheap_api": FakeClient("fake cheap_api response"),
             "frontier_api": FakeClient("fake frontier_api response"),
         },
     )
     report = run_benchmark(task, executor, trials=args.trials)
+    report = dataclasses.replace(report, settings={"local_private.think": routes["local_private"].think})
     path = write_results(report, out_dir)
     print(format_summary(report, path))
     return 0

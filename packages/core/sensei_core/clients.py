@@ -10,6 +10,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from sensei_core.config import Route
+
 OLLAMA_BASE_URL = "http://localhost:11434"
 
 
@@ -31,13 +33,31 @@ def _post_json(url: str, body: dict[str, Any], timeout: float) -> dict[str, Any]
 class OllamaClient:
     """Calls a local Ollama server's /api/generate endpoint."""
 
-    def __init__(self, model: str, base_url: str = OLLAMA_BASE_URL, timeout: float = 120.0) -> None:
+    def __init__(
+        self,
+        model: str,
+        base_url: str = OLLAMA_BASE_URL,
+        timeout: float = 120.0,
+        think: bool | None = None,
+    ) -> None:
         self.model = model
         self.url = base_url.rstrip("/") + "/api/generate"
         self.timeout = timeout
+        self.think = think  # None: leave the field out and use the server default
+
+    @classmethod
+    def for_route(cls, route: Route, **kwargs: Any) -> "OllamaClient":
+        """Build a client from route config (model and think), per Principle 1."""
+        return cls(route.model, think=route.think, **kwargs)
+
+    def request_body(self, prompt: str) -> dict[str, Any]:
+        body: dict[str, Any] = {"model": self.model, "prompt": prompt, "stream": False}
+        if self.think is not None:
+            body["think"] = self.think
+        return body
 
     def complete(self, prompt: str) -> str:
-        body = {"model": self.model, "prompt": prompt, "stream": False}
+        body = self.request_body(prompt)
         try:
             data = _post_json(self.url, body, self.timeout)
         except urllib.error.HTTPError as e:

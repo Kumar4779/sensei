@@ -183,7 +183,7 @@ def main() -> None:
     executor = Executor(
         Router(routes, trace=trace),
         {
-            "local_private": OllamaClient(local_model),
+            "local_private": OllamaClient.for_route(routes["local_private"]),
             "cheap_api": FakeClient("fake cheap_api response"),
             "frontier_api": FakeClient("fake frontier_api response"),
         },
