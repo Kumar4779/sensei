@@ -4,21 +4,29 @@
 # tier:        local | cheap_api | frontier_api
 # sensitivity: classes a route may receive (DESIGN.md Threat 5).
 #              LOCAL_ONLY content may only go to a local tier.
+# max_sensitivity:        most sensitive class the route may receive.
+# est_cost_per_1k_tokens: USD placeholder for cost-aware routing; not real pricing.
 
 [routes.local_private]
 provider = "ollama"
 model = "qwen-27b-class-placeholder"
 tier = "local"
 sensitivity = ["LOCAL_ONLY", "API_OK"]
+max_sensitivity = "LOCAL_ONLY"
+est_cost_per_1k_tokens = 0.0
 
 [routes.cheap_api]
 provider = "kimi"
 model = "kimi-placeholder"
 tier = "cheap_api"
 sensitivity = ["API_OK"]
+max_sensitivity = "API_OK"
+est_cost_per_1k_tokens = 0.001
 
 [routes.frontier_api]
 provider = "frontier"
 model = "frontier-placeholder"
 tier = "frontier_api"
 sensitivity = ["API_OK"]
+max_sensitivity = "API_OK"
+est_cost_per_1k_tokens = 0.01
