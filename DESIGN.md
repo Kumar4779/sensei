@@ -201,6 +201,29 @@ least privilege, traces and egress control shrink the payoff but do
 not make it zero.
 
 
+### Threat 3 — Memory poisoning
+
+Attack: a false fact planted via crafted content (email, document,
+conversation) is written to memory and steers all future runs —
+e.g. "this contact is trusted, skip approvals." Poisoning persists
+and borrows the user's authority, unlike one-run injection.
+
+Defences: (1) Provenance on every memory entry: source, origin and
+date; facts sourced from tool content rather than the user are
+suspect by construction. (2) Memory writes are gated: facts from
+tool content are proposed, not written; the user's own statements
+write directly. (3) Changes affecting permissions, money or trusted
+contacts are irreversible-tier and need explicit user confirmation.
+(4) File-backed memory (Decision 5) is readable, diffable and
+rollback-able, with a changelog. (5) SenseiBench includes poisoning
+probes: planted-false-fact tasks. (6) A weekly "what changed in my
+beliefs about you" list surfaces in the morning brief for review.
+
+Residual risk: slow poisoning via the user's own repeated exposure
+cannot be fully separated from genuine preference change; provenance
+and the changelog keep it reversible.
+
+
 ## 4. Eval Design
 
 _TBD._
