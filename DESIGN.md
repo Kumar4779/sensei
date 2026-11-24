@@ -36,7 +36,6 @@ What sets it apart is designed in as product features rather than layered on aft
 4. **Everything is a trace.** Plan, tool calls, screenshots/state,
    model + cost, verifier verdict — append-only, replayable,
    exportable. If it isn't in a trace, it didn't happen.
-   [DRAFT — under review]
 
 5. **Local-first, Mac is home.** Sensei core runs on the MacBook;
    iPhone/Watch are remote approval + chat surfaces; nothing sensitive
@@ -102,6 +101,10 @@ or provably deleted, and v1 has one user, not millions of memories.
 ## 3. Threat Model
 
 _TBD._
+
+Open item (from Principle 4): trace retention and redaction policy —
+how long traces live, what gets masked, who can read them — must be
+decided in this step.
 
 ## 4. Eval Design
 
