@@ -108,13 +108,16 @@ class Executor:
                 except (NoClientConfigured, BudgetExceeded):
                     raise
                 except Exception as error:
-                    # Only API_OK work retries; LOCAL_ONLY failures never move routes.
                     failures += 1
-                    if sensitivity_class != "API_OK" or failures > max_retries:
+                    if failures > max_retries:
                         raise
-                    retry = self._router.decide(
-                        RouteRequest(sensitivity_class, difficulty, prior_failures=failures)
-                    )
+                    if sensitivity_class == "LOCAL_ONLY":
+                        # LOCAL_ONLY retries reuse the same local route; never re-routed.
+                        retry = decision
+                    else:
+                        retry = self._router.decide(
+                            RouteRequest(sensitivity_class, difficulty, prior_failures=failures)
+                        )
                     self._event(
                         "run_escalated" if retry.route != decision.route else "run_retried",
                         {"from_route": decision.route, "to_route": retry.route, "attempt": failures, "error": str(error)},

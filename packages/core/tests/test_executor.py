@@ -79,7 +79,7 @@ def test_cheap_failure_escalates_to_frontier(trace):
 def test_local_failure_fails_without_touching_api(trace):
     ex, clients = make_executor(trace, local_private=FailingClient(failures=1))
     with pytest.raises(ConnectionError):
-        ex.run_once("my private note", "LOCAL_ONLY", "simple")
+        ex.run_once("my private note", "LOCAL_ONLY", "simple", max_retries=0)
     assert clients["cheap_api"].prompts == []
     assert clients["frontier_api"].prompts == []
     types = event_types(trace)
@@ -112,3 +112,17 @@ def test_simple_task_retries_cheap_once_without_escalating(trace):
     assert clients["frontier_api"].prompts == []
     assert "run_retried" in event_types(trace)
     assert "run_escalated" not in event_types(trace)
+
+
+def test_local_failure_retries_on_same_local_route(trace):
+    ex, clients = make_executor(trace, local_private=FailingClient(failures=1))
+    result = ex.run_once("my private note", "LOCAL_ONLY", "simple", max_retries=1)
+    assert result.route == "local_private"
+    assert result.response == "recovered"
+    assert result.escalated is False
+    assert len(clients["local_private"].prompts) == 2
+    assert clients["cheap_api"].prompts == []
+    assert clients["frontier_api"].prompts == []
+    types = event_types(trace)
+    assert "run_retried" in types and "run_escalated" not in types
+    assert types.count("route_decision") == 1
