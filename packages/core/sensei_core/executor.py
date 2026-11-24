@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from sensei_core.router import ModelClient, RouteDecision, RouteRequest, Router
 from sensei_core.trace import TraceWriter
+from sensei_core.verifier import Check, VerificationReport, Verifier
 
 # Rough token estimate until real token counts arrive from clients.
 CHARS_PER_TOKEN = 4
@@ -37,6 +38,16 @@ class BudgetExceeded(RuntimeError):
         )
 
 
+class VerificationFailed(RuntimeError):
+    """The model call succeeded but the verifier rejected the resulting state."""
+
+    def __init__(self, report: VerificationReport, total_est_cost_usd: float) -> None:
+        self.report = report
+        self.total_est_cost_usd = total_est_cost_usd
+        failed = [r.name for r in report.results if not r.passed]
+        super().__init__(f"verification failed: {', '.join(failed)}")
+
+
 @dataclass(frozen=True)
 class RunResult:
     response: str
@@ -45,6 +56,7 @@ class RunResult:
     latency_ms: float
     escalated: bool
     total_est_cost_usd: float = 0.0
+    verified: bool = False
 
 
 def estimate_tokens(chars: int) -> int:
@@ -78,11 +90,14 @@ class Executor:
         *,
         max_cost_usd: float | None = None,
         max_retries: int = 1,
+        checks: list[Check] | None = None,
     ) -> RunResult:
         if max_cost_usd is not None and max_cost_usd < 0:
             raise ValueError("max_cost_usd must be non-negative")
         if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
             raise ValueError("max_retries must be a non-negative int")
+        if checks is not None and not checks:
+            raise ValueError("checks must be None or a non-empty list")
         # LOCAL_ONLY runs are exempt from the cost budget (local cost is 0.0).
         limit = None if sensitivity_class == "LOCAL_ONLY" else max_cost_usd
 
@@ -137,8 +152,17 @@ class Executor:
             self._event("run_failed", {"error": f"{type(e).__name__}: {e}", "total_est_cost_usd": spent})
             raise
 
+        # Verify real state, never the response: checks get no actor output.
+        verified = False
+        if checks is not None:
+            report = Verifier(self._trace).verify(checks)
+            if not report.passed:
+                self._event("verification_failed", {**report.to_dict(), "total_est_cost_usd": spent})
+                raise VerificationFailed(report, spent)
+            verified = True
+
         result = RunResult(
-            result.response, result.route, result.model, result.latency_ms, result.escalated, spent
+            result.response, result.route, result.model, result.latency_ms, result.escalated, spent, verified
         )
         self._event(
             "run_completed",
@@ -147,6 +171,7 @@ class Executor:
                 "model": result.model,
                 "escalated": result.escalated,
                 "total_est_cost_usd": spent,
+                "verified": verified,
             },
         )
         return result
