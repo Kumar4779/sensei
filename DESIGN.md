@@ -138,11 +138,6 @@ or provably deleted, and v1 has one user, not millions of memories.
 
 _TBD._
 
-Open item (from Principle 5): sensitivity classification rule —
-starting proposal is classification by source: personal stores
-(memory, messages, health, money) are local-only; everything else may
-use API models, with every such call logged in the trace.
-
 ### Threat 1 — Prompt injection
 
 Attack: instructions hidden in tool content (email, web page, file,
@@ -244,6 +239,33 @@ can capture sensitive content outside marked fields. Retention and
 local-only storage bound the exposure.
 
 This closes the open item parked from Principle 4.
+
+### Threat 5 — Sensitivity misclassification
+
+Threat: Principle 5 forbids sensitive data leaving the Mac, but
+heavy reasoning runs on API models, so every task is a
+classification decision. Errors are asymmetric: over-caution costs
+quality, under-caution is an unsendable breach. Content can also
+become sensitive mid-task.
+
+Rule — classification by source, with taint inheritance:
+(1) Stores carry the class: personal stores (memory, messages,
+health, money, scoped personal files) are LOCAL_ONLY; everything
+else is API_OK by default. (2) Taint inheritance: anything derived
+from LOCAL_ONLY content (summaries, quotes, extracted facts)
+inherits LOCAL_ONLY. (3) The Router enforces class in code: an API
+call whose context contains LOCAL_ONLY material is refused and
+rerouted to the local model or halted for the user. (4) Uncertainty
+defaults to LOCAL_ONLY. (5) User overrides are per-call, explicit,
+and logged in the trace with what was sent — never a standing
+allowance. (6) SenseiBench includes classification probes with a
+target false-send rate of zero.
+
+Residual risk: sensitive facts inside API_OK sources (a salary
+figure in a public-looking document) escape source-based classes;
+taint inheritance, default-to-local, and full trace audit bound it.
+
+This closes the open item parked from Principle 5.
 
 ## 4. Eval Design
 
