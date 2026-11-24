@@ -28,9 +28,20 @@ class MorningData:
 @dataclass(frozen=True)
 class BriefResult:
     path: Path
-    verified: bool
-    report: VerificationReport
-    run: RunResult = field(repr=False)
+    verified: bool  # final verdict, after any repair
+    report: VerificationReport  # final report
+    run: RunResult = field(repr=False)  # final run
+    attempts: int = 1
+    first_report: VerificationReport | None = None  # the failed first report, if repaired
+    runs: tuple[RunResult, ...] = field(default=(), repr=False)
+
+    @property
+    def total_est_cost_usd(self) -> float:
+        return sum(r.total_est_cost_usd for r in self.runs or (self.run,))
+
+    @property
+    def total_latency_ms(self) -> float:
+        return sum(r.latency_ms for r in self.runs or (self.run,))
 
 
 def _read_json_list(path: Path, keys: tuple[str, ...]) -> list[dict[str, str]]:
@@ -100,6 +111,30 @@ def brief_checks(data: MorningData, out_path: str | Path) -> list[Check]:
     return checks
 
 
+def _label(check_name: str) -> str:
+    """'file_contains:/x/brief.md#event[2]' -> 'event[2]'; unlabelled checks -> 'brief_file'."""
+    return check_name.split("#", 1)[1] if "#" in check_name else "brief_file"
+
+
+def failed_labels(report: VerificationReport) -> list[str]:
+    return [_label(r.name) for r in report.results if not r.passed]
+
+
+def compose_repair_prompt(data: MorningData, labels: list[str]) -> str:
+    """Original facts plus the labels of failed checks; nothing else from the checker."""
+    labelled = [f"- event[{i}]: {e['title']} ({e['start']} to {e['end']})" for i, e in enumerate(data.events)]
+    high = [m for m in data.inbox if m["priority"] == "high"]
+    labelled += [f"- inbox_high[{i}]: {m['subject']} (from {m['from']})" for i, m in enumerate(high)]
+    labelled.append(f"- pending_count: {data.pending_count}")
+    return (
+        compose_prompt(data)
+        + "\nYour previous brief left out required items. Rewrite the brief completely, "
+        "making sure every item listed below is covered, using its exact wording.\n\n"
+        "Labelled facts:\n" + "\n".join(labelled) + "\n\n"
+        "Items your previous brief missed: " + ", ".join(labels) + "\n"
+    )
+
+
 def build_brief(
     executor: Executor,
     data: MorningData,
@@ -109,16 +144,34 @@ def build_brief(
     max_cost_usd: float | None = None,
     max_retries: int = 1,
     trace: TraceWriter | None = None,
+    repair: bool = False,
 ) -> BriefResult:
     """Write the brief, then verify the file against the data.
 
-    An unverified brief stays on disk for debugging; verified=False marks it.
+    With repair=True, a failed brief gets exactly ONE rewrite from the failed
+    check labels, then is re-verified; a second failure is a failed brief.
+    max_cost_usd covers both attempts together. An unverified brief stays on
+    disk for debugging; verified=False marks it.
     """
     out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    verifier = Verifier(trace)
+
     run = executor.run_once(
         compose_prompt(data), sensitivity, "simple", max_cost_usd=max_cost_usd, max_retries=max_retries
     )
-    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(run.response, encoding="utf-8")
-    report = Verifier(trace).verify(brief_checks(data, out))
-    return BriefResult(out, report.passed, report, run)
+    report = verifier.verify(brief_checks(data, out))
+    if report.passed or not repair:
+        return BriefResult(out, report.passed, report, run, attempts=1, runs=(run,))
+
+    labels = failed_labels(report)
+    remaining = None if max_cost_usd is None else max(0.0, max_cost_usd - run.total_est_cost_usd)
+    second = executor.run_once(
+        compose_repair_prompt(data, labels), sensitivity, "simple", max_cost_usd=remaining, max_retries=max_retries
+    )
+    out.write_text(second.response, encoding="utf-8")
+    final = verifier.verify(brief_checks(data, out))
+    if trace is not None:
+        trace.write("repair_attempted", {"failed_labels": labels, "verified": final.passed})
+    return BriefResult(out, final.passed, final, second, attempts=2, first_report=report, runs=(run, second))

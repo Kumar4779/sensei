@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from sensei_core.bench import load_task, run_benchmark, run_checker, write_results
+from sensei_core.bench import load_task, run_benchmark, run_brief_trial, run_checker, write_results
 from sensei_core.brief import load_morning_fixture
 from sensei_core.config import load_models
 from sensei_core.executor import Executor
@@ -32,6 +32,10 @@ class FlakyOnCall(FakeClient):
     def complete(self, prompt):
         self.prompts.append(prompt)
         return self.sloppy if len(self.prompts) == self.bad_call else self.response
+
+
+def no_repair(task, trial_dir, executor, n):
+    return run_brief_trial(task, trial_dir, executor, n, repair=False)
 
 
 @pytest.fixture
@@ -76,7 +80,8 @@ def test_one_bad_trial_in_three(task, data):
     missing = data.events[1]["title"]
     client = FlakyOnCall(response=good, sloppy=good.replace(missing, "a catch-up"), bad_call=2)
     executor, _ = executor_with(client)
-    report = run_benchmark(task, executor, trials=3)
+    # Plain brief workflow (no repair), so one bad call is one failed trial.
+    report = run_benchmark(task, executor, trials=3, workflow=no_repair)
     a = report.aggregates
     assert a["pass^1"] == pytest.approx(2 / 3)
     assert a["pass@3"] == 1.0
@@ -137,3 +142,34 @@ def test_budget_failure_counts_as_failed_trial(task, data):
     assert all(o.error.startswith("BudgetExceeded") for o in report.trials)
     assert report.aggregates["pass^1"] == 0.0
     assert clients["cheap_api"].prompts == []
+
+
+@dataclass
+class FirstCallSloppy(FakeClient):
+    """Odd calls omit an event (first attempt of each trial); even calls are perfect."""
+
+    sloppy: str = ""
+
+    def complete(self, prompt):
+        self.prompts.append(prompt)
+        return self.sloppy if len(self.prompts) % 2 == 1 else self.response
+
+
+def test_repair_workflow_recovers_every_trial(tmp_path, task, data):
+    good = perfect_brief(data)
+    client = FirstCallSloppy(response=good, sloppy=good.replace(data.events[2]["title"], "an errand"))
+    executor, _ = executor_with(client)
+    report = run_benchmark(task, executor, trials=3)
+    assert report.aggregates["pass^3"] == 1.0
+    assert [o.attempts for o in report.trials] == [2, 2, 2]
+    assert len(client.prompts) == 6
+    body = json.loads(write_results(report, tmp_path).read_text(encoding="utf-8"))
+    assert body["workflow"] == "brief+repair"
+    assert [t["attempts"] for t in body["trials"]] == [2, 2, 2]
+
+
+def test_workflow_field_defaults_to_brief(tmp_path, task, data):
+    executor, _ = executor_with(FakeClient(perfect_brief(data)))
+    report = run_benchmark(task, executor, trials=1, workflow=no_repair)
+    body = json.loads(write_results(report, tmp_path).read_text(encoding="utf-8"))
+    assert body["workflow"] == "brief"

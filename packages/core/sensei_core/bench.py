@@ -56,6 +56,7 @@ class TrialOutcome:
     route: str | None = None
     model: str | None = None
     error: str | None = None
+    attempts: int = 1
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ class BenchReport:
     started_at: str
     finished_at: str
     aggregates: dict[str, Any] = field(default_factory=dict)
+    workflow: str | None = None
 
 
 def load_task(task_dir: str | Path) -> BenchTask:
@@ -115,8 +117,11 @@ def run_checker(task: BenchTask, output_path: Path) -> dict[str, Any]:
     return report
 
 
-def run_brief_trial(task: BenchTask, trial_dir: Path, executor: Executor, trial: int = 1) -> TrialOutcome:
-    """Workflow for morning-brief tasks: build the brief, then grade it with the task checker."""
+def run_brief_trial(
+    task: BenchTask, trial_dir: Path, executor: Executor, trial: int = 1, repair: bool = True
+) -> TrialOutcome:
+    """Workflow for morning-brief tasks: build (and if needed repair) the brief, then grade it
+    with the task checker. The checker is the grader of record, not the workflow's own checks."""
     out = trial_dir / "brief.md"
     data = load_morning_fixture(task.fixture_dir)
     try:
@@ -127,6 +132,7 @@ def run_brief_trial(task: BenchTask, trial_dir: Path, executor: Executor, trial:
             task.sensitivity,
             max_cost_usd=task.max_cost_usd,
             max_retries=task.max_retries,
+            repair=repair,
         )
     except (BudgetExceeded, VerificationFailed) as e:
         cost = getattr(e, "total_est_cost_usd", getattr(e, "accumulated_cost_usd", 0.0))
@@ -140,13 +146,16 @@ def run_brief_trial(task: BenchTask, trial_dir: Path, executor: Executor, trial:
     return TrialOutcome(
         trial,
         bool(report["passed"]),
-        result.run.latency_ms,
-        result.run.total_est_cost_usd,
+        result.total_latency_ms,
+        result.total_est_cost_usd,
         failed,
         route=result.run.route,
         model=result.run.model,
+        attempts=result.attempts,
     )
 
+
+run_brief_trial.workflow_name = "brief+repair"  # type: ignore[attr-defined]
 
 Workflow = Callable[[BenchTask, Path, Executor, int], TrialOutcome]
 WORKFLOWS: dict[str, Workflow] = {"morning-brief-001": run_brief_trial}
@@ -196,13 +205,15 @@ def run_benchmark(
             trial_dir.mkdir()
             outcomes.append(workflow(task, trial_dir, executor, n))
     finished = datetime.now(timezone.utc).isoformat()
-    return BenchReport(task, outcomes, started, finished, aggregate(outcomes))
+    name = getattr(workflow, "workflow_name", None)
+    return BenchReport(task, outcomes, started, finished, aggregate(outcomes), workflow=name)
 
 
 def report_to_dict(report: BenchReport) -> dict[str, Any]:
     t = report.task
     return {
         "task": {"id": t.id, "version": t.version, "category": t.category, "sensitivity": t.sensitivity},
+        "workflow": report.workflow or "brief",
         "budget": {"max_cost_usd": t.max_cost_usd, "max_retries": t.max_retries},
         "models": sorted({o.model for o in report.trials if o.model}),
         "routes": sorted({o.route for o in report.trials if o.route}),
@@ -241,14 +252,14 @@ def format_summary(report: BenchReport, results_path: Path | None = None) -> str
 
     lines = [
         f"SenseiBench  {report.task.id} v{report.task.version}  ({report.task.category}, {report.task.sensitivity})",
-        f"model: {', '.join(d['models']) or '-'}   route: {', '.join(d['routes']) or '-'}   trials: {k}",
+        f"workflow: {d['workflow']}   model: {', '.join(d['models']) or '-'}   route: {', '.join(d['routes']) or '-'}   trials: {k}",
         "",
-        f"{'trial':<6}{'result':<8}{'latency':>10}{'est cost':>12}  failed checks / error",
+        f"{'trial':<6}{'result':<8}{'tries':>6}{'latency':>10}{'est cost':>12}  failed checks / error",
     ]
     for o in report.trials:
         detail = o.error or (", ".join(o.failed_checks) if o.failed_checks else "-")
         lines.append(
-            f"{o.trial:<6}{'PASS' if o.passed else 'FAIL':<8}{ms(o.latency_ms):>10}{'$' + format(o.est_cost_usd, '.4f'):>12}  {detail}"
+            f"{o.trial:<6}{'PASS' if o.passed else 'FAIL':<8}{o.attempts:>6}{ms(o.latency_ms):>10}{'$' + format(o.est_cost_usd, '.4f'):>12}  {detail}"
         )
     lines += [
         "",

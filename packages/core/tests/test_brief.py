@@ -144,3 +144,70 @@ def test_bench_checker_covers_high_priority_subject(tmp_path, trace, data):
     report = checker.check(bad)
     assert report.passed is False
     assert [r.name for r in report.results if not r.passed] == [f"file_contains:{bad}#inbox_high[0]"]
+
+
+class Scripted:
+    """Returns the scripted responses in order, recording every prompt."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.prompts = []
+
+    def complete(self, prompt):
+        self.prompts.append(prompt)
+        return self.responses[min(len(self.prompts), len(self.responses)) - 1]
+
+
+def run_with(trace, data, client, out, repair=True):
+    clients = {"local_private": client, "cheap_api": FakeClient("x"), "frontier_api": FakeClient("x")}
+    executor = Executor(Router(load_models(), trace=trace), clients, trace=trace)
+    return build_brief(executor, data, out, max_cost_usd=0.0, trace=trace, repair=repair)
+
+
+def without_event_2(data):
+    return perfect_brief(data).replace(data.events[2]["title"], "an errand")
+
+
+def test_repair_fixes_a_missing_event(tmp_path, trace, data):
+    client = Scripted(without_event_2(data), perfect_brief(data))
+    result = run_with(trace, data, client, tmp_path / "brief.md")
+    assert result.verified is True
+    assert result.attempts == 2
+    assert [r.name.split("#")[-1] for r in result.first_report.results if not r.passed] == ["event[2]"]
+    assert len(client.prompts) == 2
+    repair_prompt = client.prompts[1]
+    assert "Items your previous brief missed: event[2]" in repair_prompt
+    assert data.events[2]["title"] in repair_prompt
+    assert "file_contains" not in repair_prompt and str(tmp_path) not in repair_prompt
+    [event] = [e for e in read_events(trace.path) if e["event_type"] == "repair_attempted"]
+    assert event["payload"] == {"failed_labels": ["event[2]"], "verified": True}
+    assert data.events[2]["title"] in (tmp_path / "brief.md").read_text(encoding="utf-8")
+
+
+def test_repair_happens_once_then_fails(tmp_path, trace, data):
+    client = Scripted(without_event_2(data), without_event_2(data), perfect_brief(data))
+    result = run_with(trace, data, client, tmp_path / "brief.md")
+    assert result.verified is False
+    assert result.attempts == 2
+    assert len(client.prompts) == 2  # no third call
+    assert [e["payload"]["verified"] for e in read_events(trace.path) if e["event_type"] == "repair_attempted"] == [False]
+    assert (tmp_path / "brief.md").exists()
+
+
+def test_perfect_first_brief_sends_no_repair_prompt(tmp_path, trace, data):
+    client = Scripted(perfect_brief(data))
+    result = run_with(trace, data, client, tmp_path / "brief.md")
+    assert result.verified is True
+    assert result.attempts == 1
+    assert result.first_report is None
+    assert len(client.prompts) == 1
+    assert "repair_attempted" not in [e["event_type"] for e in read_events(trace.path)]
+
+
+def test_repair_is_off_by_default(tmp_path, trace, data):
+    client = Scripted(without_event_2(data), perfect_brief(data))
+    clients = {"local_private": client, "cheap_api": FakeClient("x"), "frontier_api": FakeClient("x")}
+    executor = Executor(Router(load_models(), trace=trace), clients, trace=trace)
+    result = build_brief(executor, data, tmp_path / "brief.md", trace=trace)
+    assert result.verified is False and result.attempts == 1
+    assert len(client.prompts) == 1
