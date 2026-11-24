@@ -87,6 +87,12 @@ strongest tool-calling in its size class and permissive licensing;
 Gemma trails on tool-calling and carries a more restrictive licence.
 This is a router default under Principle 1, not a lock-in.
 
+**Decision 4 — Trace store: local JSONL + Langfuse export.** Traces are written as append-only JSONL files
+on the Mac — that is the source of truth: offline, human-readable,
+never dependent on a vendor. Langfuse sits on top as an export and
+viewing layer for timelines and cost inspection. If Langfuse is
+unavailable, Sensei loses nothing.
+
 ## 3. Threat Model
 
 _TBD._
