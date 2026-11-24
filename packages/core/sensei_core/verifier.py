@@ -47,10 +47,11 @@ class FileExists:
 class FileContains:
     path: str | Path
     text: str
+    label: str = ""  # identifies which text, without copying it into reports
 
     @property
     def name(self) -> str:
-        return f"file_contains:{self.path}"
+        return f"file_contains:{self.path}" + (f"#{self.label}" if self.label else "")
 
     def run(self) -> CheckResult:
         p = Path(self.path)

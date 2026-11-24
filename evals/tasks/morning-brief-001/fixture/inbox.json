@@ -1,0 +1,22 @@
+[
+  {
+    "from": "Alex Rivera <alex.rivera@example.com>",
+    "subject": "Contract draft needs your sign-off by noon",
+    "priority": "high"
+  },
+  {
+    "from": "Priya Natarajan <priya.n@example.org>",
+    "subject": "Photos from the weekend hike",
+    "priority": "normal"
+  },
+  {
+    "from": "Lantern Books <newsletter@example.net>",
+    "subject": "December reading list",
+    "priority": "low"
+  },
+  {
+    "from": "Kenji Morimoto <kenji.m@example.com>",
+    "subject": "Re: dinner on Friday?",
+    "priority": "normal"
+  }
+]
