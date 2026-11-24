@@ -267,6 +267,28 @@ taint inheritance, default-to-local, and full trace audit bound it.
 
 This closes the open item parked from Principle 5.
 
+### Threat 6 — Credential theft
+
+Threat: Sensei needs credentials (model APIs, Gmail, Calendar, MCP
+servers). Keys are the highest-density secret in the system, and
+agents leak them into logs, commits and outputs.
+
+Defences: (1) The agent never sees raw keys: a token broker in the
+Control Plane holds credentials in macOS Keychain and calls on the
+agent's behalf, or issues short-lived scoped tokens per task.
+(2) Tokens are short-lived and scoped to the current task's manifest
+by default. (3) Canary credentials: any use or transmission of a
+planted fake credential means compromise — fail loudly, revoke all,
+alert the user. (4) Write-time trace redaction (Threat 4) as the
+second net. (5) Config the agent can read holds only broker
+references, never live secrets. (6) One-action "revoke all" in the
+Gateway, rehearsed like the kill switch.
+
+Residual risk: the broker and the Mac are the high-value targets; a
+fully compromised machine defeats most of this. The design goal is
+that compromising the agent yields no keys.
+
+
 ## 4. Eval Design
 
 _TBD._
