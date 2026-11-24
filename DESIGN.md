@@ -18,6 +18,35 @@ What sets it apart is designed in as product features rather than layered on aft
 
 _TBD._
 
+### Design Principles
+
+1. **Model is a config, never code.** Every model call goes through a
+   Router interface; Kimi (API) first, local Qwen/Gemma/gpt-oss for
+   private tasks, frontier APIs for eval baselines only. Router logs
+   model, reason, tokens, cost per call. The router assigns each task
+   the cheapest model that can do it well; frontier models are spent
+   only where the task earns it.
+
+2. **Actor and verifier are separate processes of thought.** The agent
+   that acts never grades itself; deterministic checks run first, a
+   second model judges only what determinism cannot.
+   [DRAFT — under review]
+
+3. **Permissions are data, not vibes.** Every tool declares its tier
+   (read / reversible / irreversible) in a manifest; the control plane
+   enforces it, the agent cannot override it.
+   [DRAFT — under review]
+
+4. **Everything is a trace.** Plan, tool calls, screenshots/state,
+   model + cost, verifier verdict — append-only, replayable,
+   exportable. If it isn't in a trace, it didn't happen.
+   [DRAFT — under review]
+
+5. **Local-first, Mac is home.** Sensei core runs on the MacBook;
+   iPhone/Watch are remote approval + chat surfaces; nothing sensitive
+   leaves the Mac unless the user explicitly allows it.
+   [DRAFT — under review]
+
 ## 3. Threat Model
 
 _TBD._
