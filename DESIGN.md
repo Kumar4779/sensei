@@ -80,6 +80,13 @@ submodules pinned to specific commits; Sensei upgrades a module by
 deliberately moving the pointer. Copying module code into Sensei was
 rejected: copies drift, and every fix would have to be made twice.
 
+**Decision 3 — Local model default: Qwen 27B-class via Ollama/MLX.** The local model is Sensei's private
+brain: personal data (memory, messages, health, money) is processed
+on the MacBook and never leaves the machine. Qwen was chosen for the
+strongest tool-calling in its size class and permissive licensing;
+Gemma trails on tool-calling and carries a more restrictive licence.
+This is a router default under Principle 1, not a lock-in.
+
 ## 3. Threat Model
 
 _TBD._
