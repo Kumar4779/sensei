@@ -25,6 +25,29 @@ What sets it apart is designed in as product features rather than layered on aft
   scheduling.
 - **Open models.** It runs on open-weight models through a pluggable router, so you are not locked in to one vendor or one model.
 
+**The two honest differences from Meta's Muse (by design, stated publicly)**
+1. Open models: Sensei runs on open-weight models (Kimi first,
+   pluggable) instead of proprietary models. Users can see which model
+   answered, what it cost, and swap it.
+2. Open system: Sensei's harness, evals, and traces are open-source
+   and inspectable — the user can audit what the agent did and why,
+   which a closed product does not offer.
+
+**v1 workflows (the first daily-life slice — still gated)**
+Morning brief · research-to-doc with sources · verified browser task
+(MacPilot) · inbox/calendar triage (draft-only) · approvals via
+phone/Watch · plus the always-on layer: chat/voice companion with
+memory and proactive nudges (Muse-parity core).
+
+**Out of scope for v1**
+Payments/shopping execution, public social posting, controlling
+others' accounts, iOS-side computer control, training models.
+
+**Success for v1**
+The author uses Sensei as their daily personal agent for 2 straight weeks
+(brief, triage, nudges, approvals) with published SenseiBench numbers.
+
+
 ## 2. Architecture
 
 ### Design Principles
@@ -129,7 +152,7 @@ _TBD._
 
 Implementation does not begin until all of the following are true:
 
-- [ ] §1 Product Definition complete and reviewed
+- [x] §1 Product Definition complete and reviewed (2026-11-24)
 - [x] §2 Architecture complete and reviewed (2026-11-24, commits 9da7bbb–d6af242)
 - [ ] §3 Threat Model complete and reviewed
 - [ ] §4 Eval Design complete, with SenseiBench specified before any agent code
