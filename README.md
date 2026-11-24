@@ -2,7 +2,7 @@
 
 An open-source personal agent — Muse-class, built on open-weight models
 
-**Status: Design Phase** — no agent code until the Design Review Gate passes.
+**Status: Design gate passed 2026-11-24 — implementation in progress (Slice 1: trace store + model config)**
 
 ## Design-phase steps
 

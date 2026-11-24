@@ -1,0 +1,24 @@
+# Sensei routing table — model is a config, never code (DESIGN.md Principle 1).
+# Model names are placeholders until a real model is pinned per route.
+#
+# tier:        local | cheap_api | frontier_api
+# sensitivity: classes a route may receive (DESIGN.md Threat 5).
+#              LOCAL_ONLY content may only go to a local tier.
+
+[routes.local_private]
+provider = "ollama"
+model = "qwen-27b-class-placeholder"
+tier = "local"
+sensitivity = ["LOCAL_ONLY", "API_OK"]
+
+[routes.cheap_api]
+provider = "kimi"
+model = "kimi-placeholder"
+tier = "cheap_api"
+sensitivity = ["API_OK"]
+
+[routes.frontier_api]
+provider = "frontier"
+model = "frontier-placeholder"
+tier = "frontier_api"
+sensitivity = ["API_OK"]
