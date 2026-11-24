@@ -33,17 +33,20 @@ What sets it apart is designed in as product features rather than layered on aft
    and inspectable — the user can audit what the agent did and why,
    which a closed product does not offer.
 
-**v1 workflows (the first daily-life slice — still gated)**
+#### v1 workflows (the first daily-life slice — still gated)
+
 Morning brief · research-to-doc with sources · verified browser task
 (MacPilot) · inbox/calendar triage (draft-only) · approvals via
 phone/Watch · plus the always-on layer: chat/voice companion with
 memory and proactive nudges (Muse-parity core).
 
-**Out of scope for v1**
+#### Out of scope for v1
+
 Payments/shopping execution, public social posting, controlling
 others' accounts, iOS-side computer control, training models.
 
-**Success for v1**
+#### Success for v1
+
 The author uses Sensei as their daily personal agent for 2 straight weeks
 (brief, triage, nudges, approvals) with published SenseiBench numbers.
 
