@@ -1,5 +1,5 @@
 # Sensei routing table — model is a config, never code (DESIGN.md Principle 1).
-# Model names are placeholders until a real model is pinned per route.
+# local_private is pinned to qwen3:8b (Decision 3 as amended, 16 GB hardware); API routes are placeholders.
 #
 # tier:        local | cheap_api | frontier_api
 # sensitivity: classes a route may receive (DESIGN.md Threat 5).
@@ -9,7 +9,7 @@
 
 [routes.local_private]
 provider = "ollama"
-model = "qwen-27b-class-placeholder"
+model = "qwen3:8b"
 tier = "local"
 sensitivity = ["LOCAL_ONLY", "API_OK"]
 max_sensitivity = "LOCAL_ONLY"

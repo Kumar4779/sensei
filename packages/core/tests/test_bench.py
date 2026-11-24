@@ -113,7 +113,7 @@ def test_results_json_has_required_fields(tmp_path, task, data):
     assert path.name.startswith("morning-brief-001-v1-") and path.suffix == ".json"
     body = json.loads(path.read_text(encoding="utf-8"))
     assert body["task"]["id"] == "morning-brief-001" and body["task"]["version"] == 1
-    assert body["models"] == ["qwen-27b-class-placeholder"]
+    assert body["models"] == [load_models()["local_private"].model]
     assert body["routes"] == ["local_private"]
     assert len(body["trials"]) == 3
     for key in ("pass^1", "pass@3", "pass^3", "mean_est_cost_usd", "latency_ms_p50", "latency_ms_p95"):
