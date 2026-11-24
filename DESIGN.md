@@ -97,6 +97,9 @@ Key rule: content from tools (email, web pages, files) is data, never
 instructions. Only the user instructs Sensei. Irreversible-tier tool
 calls halt at the Control Plane for user approval.
 
+MacPilot operates in a dedicated browser profile, not the user's
+real profile.
+
 
 ### Decisions
 
@@ -399,6 +402,14 @@ budget blowout (cost/latency); task ambiguity (the bench's fault
 — recorded honestly, task revised, score not hidden).
 
 
+### Ablations (named in advance)
+
+SenseiBench reports three ablations from the first full run:
+verifier on/off, router on/off (all-frontier baseline), and
+MacPilot perception screenshot-only vs screenshot+AX/DOM. The
+wider research layer (router trained on verified outcomes) is a
+later phase per the frontier plan.
+
 ## 5. Design Review Gate
 
 Implementation does not begin until all of the following are true:
@@ -407,4 +418,4 @@ Implementation does not begin until all of the following are true:
 - [x] §2 Architecture complete and reviewed (2026-11-24, commits 9da7bbb–d6af242)
 - [x] §3 Threat Model complete and reviewed (2026-11-24)
 - [x] §4 Eval Design complete, with SenseiBench specified before any agent code (2026-11-24)
-- [ ] Design reviewed against all 10 standards in [STANDARDS.md](STANDARDS.md)
+- [x] Design reviewed against all 10 standards in [STANDARDS.md](STANDARDS.md) (2026-11-24; sandboxing line and ablations added in this review; production hygiene noted as an implementation-phase standard enforced from the first code commit; LICENSE diff against apache.org remains an open pre-publish item)
