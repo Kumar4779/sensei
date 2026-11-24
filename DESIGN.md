@@ -119,7 +119,7 @@ _TBD._
 Implementation does not begin until all of the following are true:
 
 - [ ] §1 Product Definition complete and reviewed
-- [ ] §2 Architecture complete and reviewed
+- [x] §2 Architecture complete and reviewed (2026-11-24, commits 9da7bbb–d6af242)
 - [ ] §3 Threat Model complete and reviewed
 - [ ] §4 Eval Design complete, with SenseiBench specified before any agent code
 - [ ] Design reviewed against all 10 standards in [STANDARDS.md](STANDARDS.md)
