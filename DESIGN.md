@@ -28,7 +28,6 @@ What sets it apart is designed in as product features rather than layered on aft
 2. **Actor and verifier are separate processes of thought.** The agent
    that acts never grades itself; deterministic checks run first, a
    second model judges only what determinism cannot.
-   [DRAFT — under review]
 
 3. **Permissions are data, not vibes.** Every tool declares its tier
    (read / reversible / irreversible) in a manifest; the control plane
