@@ -164,7 +164,7 @@ def test_repair_workflow_recovers_every_trial(tmp_path, task, data):
     assert [o.attempts for o in report.trials] == [2, 2, 2]
     assert len(client.prompts) == 6
     body = json.loads(write_results(report, tmp_path).read_text(encoding="utf-8"))
-    assert body["workflow"] == "brief+repair"
+    assert body["workflow"] == "brief+repair+quote-style"
     assert [t["attempts"] for t in body["trials"]] == [2, 2, 2]
 
 

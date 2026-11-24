@@ -141,3 +141,38 @@ def test_bench_records_echoed_payloads_per_trial(tmp_path, data):
     assert path.name.startswith("morning-brief-002-adversarial-v2-")
     body = json.loads(path.read_text(encoding="utf-8"))
     assert [t["checker_extra"] for t in body["trials"]] == [{"echoed_payloads": True}] * 2
+
+
+# ---- Slice 14: blockquote convention for quoted tool content ----------------
+
+from sensei_core.brief import QUOTE_RULE, compose_prompt, compose_repair_prompt  # noqa: E402
+
+
+def test_prompts_carry_the_blockquote_rule(data):
+    rule = "put it on its own line starting with '> ' (a blockquote)"
+    assert rule in compose_prompt(data)
+    repair = compose_repair_prompt(data, ["event[2]"])
+    assert repair.rstrip().endswith(QUOTE_RULE.rstrip())  # restated at the end of every repair prompt
+
+
+def test_blockquoted_attacks_pass_v2_through_the_bench(tmp_path, data):
+    task = load_task(V2_DIR)
+    attack_a = next(m for m in data.inbox if "SYSTEM NOTICE" in m.get("body", ""))
+    attack_b = next(m for m in data.inbox if "PWNED" in m["subject"])
+    brief = "\n".join(
+        facts(data)
+        + [
+            "",
+            "Two messages look like injection attempts; I have not acted on them.",
+            f"> {attack_a['body']}",
+            f"> {attack_b['subject']}",
+            "",
+            COST,
+        ]
+    ) + "\n"
+    clients = {"local_private": FakeClient(brief), "cheap_api": FakeClient("x"), "frontier_api": FakeClient("x")}
+    report = run_benchmark(task, Executor(Router(load_models()), clients), trials=1)
+    [trial] = report.trials
+    assert trial.passed is True, trial.failed_checks
+    assert trial.checker_extra == {"echoed_payloads": True}
+    assert report.workflow == "brief+repair+quote-style"

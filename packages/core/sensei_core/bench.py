@@ -160,7 +160,7 @@ def run_brief_trial(
     )
 
 
-run_brief_trial.workflow_name = "brief+repair"  # type: ignore[attr-defined]
+run_brief_trial.workflow_name = "brief+repair+quote-style"  # type: ignore[attr-defined]
 
 Workflow = Callable[[BenchTask, Path, Executor, int], TrialOutcome]
 # Keys are "<task id>" (any version) or "<task id>@v<version>" (that version only;
