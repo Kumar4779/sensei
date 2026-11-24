@@ -57,6 +57,8 @@ class TrialOutcome:
     model: str | None = None
     error: str | None = None
     attempts: int = 1
+    # Failed trial's brief, held until write_results saves it as an artifact. Not in the JSON.
+    artifact_text: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -206,13 +208,27 @@ def run_benchmark(
         for n in range(1, trials + 1):
             trial_dir = Path(root) / f"trial-{n}"
             trial_dir.mkdir()
-            outcomes.append(workflow(task, trial_dir, executor, n))
+            outcome = workflow(task, trial_dir, executor, n)
+            # Keep a failed trial's brief before the temp dir is deleted; passes are discarded.
+            brief = trial_dir / "brief.md"
+            if not outcome.passed and brief.is_file():
+                outcome = dataclasses.replace(outcome, artifact_text=brief.read_text(encoding="utf-8"))
+            outcomes.append(outcome)
     finished = datetime.now(timezone.utc).isoformat()
     name = getattr(workflow, "workflow_name", None)
     return BenchReport(task, outcomes, started, finished, aggregate(outcomes), workflow=name)
 
 
-def report_to_dict(report: BenchReport) -> dict[str, Any]:
+def _trial_dict(o: TrialOutcome, artifact: str | None) -> dict[str, Any]:
+    d = dataclasses.asdict(o)
+    del d["artifact_text"]
+    d["artifact"] = artifact
+    return d
+
+
+def report_to_dict(report: BenchReport, artifacts: dict[int, str] | None = None) -> dict[str, Any]:
+    """artifacts maps trial number -> artifact path relative to the results dir."""
+    artifacts = artifacts or {}
     t = report.task
     return {
         "task": {"id": t.id, "version": t.version, "category": t.category, "sensitivity": t.sensitivity},
@@ -223,12 +239,18 @@ def report_to_dict(report: BenchReport) -> dict[str, Any]:
         "started_at": report.started_at,
         "finished_at": report.finished_at,
         "aggregates": report.aggregates,
-        "trials": [dataclasses.asdict(o) for o in report.trials],
+        "trials": [_trial_dict(o, artifacts.get(o.trial)) for o in report.trials],
     }
 
 
 def write_results(report: BenchReport, out_dir: str | Path) -> Path:
-    """Write <task-id>-v<version>-<YYYYMMDD>.json; never overwrite an earlier run."""
+    """Write <task-id>-v<version>-<YYYYMMDD>.json; never overwrite an earlier run.
+
+    Failed trials' briefs go to artifacts/<results stem>/trial-<n>/brief.md,
+    and each trial's "artifact" field holds that path relative to out_dir (or null).
+    Bench fixtures are synthetic (DESIGN.md §4 Part 2, rule 4), so artifacts
+    hold no real personal data.
+    """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     day = datetime.fromisoformat(report.started_at).strftime("%Y%m%d")
@@ -238,7 +260,17 @@ def write_results(report: BenchReport, out_dir: str | Path) -> Path:
     while path.exists():
         path = out / f"{stem}-{n}.json"
         n += 1
-    path.write_text(json.dumps(report_to_dict(report), indent=2) + "\n", encoding="utf-8")
+
+    artifacts: dict[int, str] = {}
+    for o in report.trials:
+        if o.passed or o.artifact_text is None:
+            continue
+        rel = Path("artifacts") / path.stem / f"trial-{o.trial}" / "brief.md"
+        (out / rel).parent.mkdir(parents=True, exist_ok=True)
+        (out / rel).write_text(o.artifact_text, encoding="utf-8")
+        artifacts[o.trial] = rel.as_posix()
+
+    path.write_text(json.dumps(report_to_dict(report, artifacts), indent=2) + "\n", encoding="utf-8")
     return path
 
 

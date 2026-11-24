@@ -173,3 +173,50 @@ def test_workflow_field_defaults_to_brief(tmp_path, task, data):
     report = run_benchmark(task, executor, trials=1, workflow=no_repair)
     body = json.loads(write_results(report, tmp_path).read_text(encoding="utf-8"))
     assert body["workflow"] == "brief"
+
+
+def test_failed_trial_brief_is_kept_as_artifact(tmp_path, task, data):
+    good = perfect_brief(data)
+    sloppy = good.replace(data.events[1]["title"], "a catch-up")
+    executor, _ = executor_with(FlakyOnCall(response=good, sloppy=sloppy, bad_call=2))
+    report = run_benchmark(task, executor, trials=3, workflow=no_repair)
+    path = write_results(report, tmp_path)
+
+    files = [p for p in (tmp_path / "artifacts").rglob("*") if p.is_file()]
+    assert len(files) == 1
+    expected = Path("artifacts") / path.stem / "trial-2" / "brief.md"
+    assert files[0] == tmp_path / expected
+    assert files[0].read_text(encoding="utf-8") == sloppy
+
+    body = json.loads(path.read_text(encoding="utf-8"))
+    assert [t["artifact"] for t in body["trials"]] == [None, expected.as_posix(), None]
+    assert all("artifact_text" not in t for t in body["trials"])
+
+
+def test_all_pass_run_leaves_no_artifacts(tmp_path, task, data):
+    executor, _ = executor_with(FakeClient(perfect_brief(data)))
+    path = write_results(run_benchmark(task, executor, trials=3), tmp_path)
+    artifacts = tmp_path / "artifacts"
+    assert not artifacts.exists() or not any(artifacts.rglob("*"))
+    assert all(t["artifact"] is None for t in json.loads(path.read_text(encoding="utf-8"))["trials"])
+
+
+def test_failed_trial_without_a_brief_has_null_artifact(tmp_path, task, data):
+    api_task = type(task)(**{**task.__dict__, "sensitivity": "API_OK"})  # $0 budget halts before any brief
+    executor, _ = executor_with(FakeClient(perfect_brief(data)))
+    path = write_results(run_benchmark(api_task, executor, trials=1), tmp_path)
+    [trial] = json.loads(path.read_text(encoding="utf-8"))["trials"]
+    assert trial["passed"] is False and trial["artifact"] is None
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_artifact_dir_follows_the_deduplicated_results_name(tmp_path, task, data):
+    good = perfect_brief(data)
+    sloppy = good.replace(data.events[0]["title"], "a meeting")
+    executor, _ = executor_with(FlakyOnCall(response=good, sloppy=sloppy, bad_call=1))
+    report = run_benchmark(task, executor, trials=1, workflow=no_repair)
+    first = write_results(report, tmp_path)
+    second = write_results(report, tmp_path)
+    assert second.stem.endswith("-2")
+    assert (tmp_path / "artifacts" / first.stem / "trial-1" / "brief.md").is_file()
+    assert (tmp_path / "artifacts" / second.stem / "trial-1" / "brief.md").is_file()
