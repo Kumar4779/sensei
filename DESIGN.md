@@ -11,7 +11,18 @@ Sensei is a daily-life personal agent in the class of Meta's Muse, built entirel
 What sets it apart is designed in as product features rather than layered on afterwards:
 
 - **The Sensei personality.** A disciplined teacher-mentor. Sensei helps you get things done and helps you get better at them. It is direct, patient and holds high standards.
-- **Asian cultural fluency.** It understands Asian languages, naming conventions, honorifics, festivals, calendars, family structures and social norms as part of the core product.
+- Cultural fluency (features, not stereotypes): Centre of gravity —
+  East and Southeast Asia: Japanese, Chinese, Taiwan, Singapore,
+  Malaysia. Its manner: polite, humble and
+  comfortable — polished and aspirational on the surface, warm and
+  unpretentious underneath. Plus a San Francisco + New York cosmopolitan
+  layer, so people from diverse backgrounds find the agent likeable and
+  can follow it easily: plain, clear language first, cultural depth
+  underneath. Code-switching follows the centre: Mandarin (incl. Taiwan
+  usage), Japanese, and the Singapore/Malaysia mix. Festival fluency
+  centres on Lunar New Year and the East/SE Asian calendar, including
+  Singapore/Malaysia's multicultural calendar and Ramadan-aware
+  scheduling.
 - **Open models.** It runs on open-weight models through a pluggable router, so you are not locked in to one vendor or one model.
 
 ## 2. Architecture
