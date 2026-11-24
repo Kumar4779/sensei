@@ -65,6 +65,15 @@ instructions. Only the user instructs Sensei. Irreversible-tier tool
 calls halt at the Control Plane for user approval.
 
 
+### Decisions
+
+**Decision 1 — Core language: Python.**
+Reasons: MergeJudge and SkillForge are already Python, so the runner,
+scorer and eval harness are reused, not rewritten; LLM evals and agent
+tooling land in Python first; one coherent Python + agentic-AI story.
+TypeScript was rejected because the surfaces are Swift regardless, so
+it buys no end-to-end unity.
+
 ## 3. Threat Model
 
 _TBD._
