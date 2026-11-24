@@ -147,6 +147,33 @@ starting proposal is classification by source: personal stores
 (memory, messages, health, money) are local-only; everything else may
 use API models, with every such call logged in the trace.
 
+### Threat 1 — Prompt injection
+
+Attack: instructions hidden in tool content (email, web page, file,
+calendar invite) try to make Sensei act for the attacker. Root cause:
+to the model, instructions and data arrive in the same channel.
+
+Design stance: assume the model WILL sometimes be fooled. Safety is
+built so a successful injection is harmless, not on the model being
+un-foolable.
+
+Defences: (1) Tool content is data, never instructions; only the user
+instructs Sensei. (2) Control Plane tiers: a fooled agent alone can
+reach at most read/reversible actions; irreversible calls halt for
+user approval, and the approval shows the action and its origin.
+(3) Scoped, short-lived tokens limit blast radius. (4) Canary secrets:
+a run that reads, copies or sends a planted fake credential fails
+loudly. (5) Traces log every tool call and its triggering content.
+(6) The verifier checks outbound work against the user's actual
+request before release.
+
+Residual risk: read-tier injection can still distort summaries and
+judgment; exfiltration through legitimate-looking outputs is not
+fully excluded. Rule: the lethal trifecta — private data, untrusted
+content, external communication — never coexists in one run without
+an approval gate breaking one leg.
+
+
 ## 4. Eval Design
 
 _TBD._
