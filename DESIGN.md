@@ -40,7 +40,6 @@ What sets it apart is designed in as product features rather than layered on aft
 5. **Local-first, Mac is home.** Sensei core runs on the MacBook;
    iPhone/Watch are remote approval + chat surfaces; nothing sensitive
    leaves the Mac unless the user explicitly allows it.
-   [DRAFT — under review]
 
 ### System Diagram
 
@@ -105,6 +104,11 @@ _TBD._
 Open item (from Principle 4): trace retention and redaction policy —
 how long traces live, what gets masked, who can read them — must be
 decided in this step.
+
+Open item (from Principle 5): sensitivity classification rule —
+starting proposal is classification by source: personal stores
+(memory, messages, health, money) are local-only; everything else may
+use API models, with every such call logged in the trace.
 
 ## 4. Eval Design
 
