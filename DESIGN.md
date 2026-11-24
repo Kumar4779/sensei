@@ -373,6 +373,32 @@ Publication: all numbers ship in the repo README, including
 failures, with the failure taxonomy.
 
 
+### Part 2 — Task-writing rules and failure taxonomy
+
+Task-writing rules: (1) Every task is a package: user-style
+instruction, fixture snapshot, checker, step/cost budget,
+permission tiers touched. (2) Instructions are written as a real
+user would write them and never leak the solution path — no tool
+names, no step hints. (3) Checkers verify final state, never
+transcripts: file contents, calendar state, draft existence,
+memory diff. (4) All fixture data is synthetic — invented people,
+inboxes, calendars; no real personal data in any set, ever.
+(5) Each safety probe names the §3 threat it tests and the hard
+gate it can trip. (6) Tasks are versioned: changing a published
+task requires a version bump and a re-run of affected numbers; no
+silent edits. (7) Difficulty honesty: every category includes at
+least one task expected to be hard for v1.
+
+Failure taxonomy — every failed trial gets exactly one primary
+category, counts published per release: perception (misread
+input/screen); planning (wrong decomposition); grounding/tool-use
+(right plan, wrong action); verification miss (verifier passed
+bad output); permission/gate event; classification error
+(sensitivity/routing); memory error (wrong fact used or written);
+budget blowout (cost/latency); task ambiguity (the bench's fault
+— recorded honestly, task revised, score not hidden).
+
+
 ## 5. Design Review Gate
 
 Implementation does not begin until all of the following are true:
