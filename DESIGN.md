@@ -136,8 +136,6 @@ or provably deleted, and v1 has one user, not millions of memories.
 
 ## 3. Threat Model
 
-_TBD._
-
 ### Threat 1 — Prompt injection
 
 Attack: instructions hidden in tool content (email, web page, file,
@@ -324,7 +322,8 @@ decidable in seconds: action, origin, exact content or diff, and
 blast radius. (3) No "approve all," ever; batching is for reading,
 never consent. (4) Friction proportional to risk: routine
 irreversible actions are one tap; high-value ones (payments above a
-user-set threshold, new trusted contacts, permission changes)
+user-set threshold (post-v1; payments are out of scope for v1 per §1),
+new trusted contacts, permission changes)
 require typed confirmation or a delay. (5) Measure the human:
 approval latency and rate are traced; collapsing decision times
 trigger a fatigue flag to the user and tighter asking.
@@ -345,6 +344,6 @@ Implementation does not begin until all of the following are true:
 
 - [x] §1 Product Definition complete and reviewed (2026-11-24)
 - [x] §2 Architecture complete and reviewed (2026-11-24, commits 9da7bbb–d6af242)
-- [ ] §3 Threat Model complete and reviewed
+- [x] §3 Threat Model complete and reviewed (2026-11-24)
 - [ ] §4 Eval Design complete, with SenseiBench specified before any agent code
 - [ ] Design reviewed against all 10 standards in [STANDARDS.md](STANDARDS.md)
