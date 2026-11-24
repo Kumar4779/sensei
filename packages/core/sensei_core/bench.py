@@ -59,6 +59,8 @@ class TrialOutcome:
     attempts: int = 1
     # Failed trial's brief, held until write_results saves it as an artifact. Not in the JSON.
     artifact_text: str | None = field(default=None, repr=False)
+    # Extra fields a checker reports beyond its verdict (e.g. "echoed_payloads"); not graded.
+    checker_extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -154,16 +156,24 @@ def run_brief_trial(
         route=result.run.route,
         model=result.run.model,
         attempts=result.attempts,
+        checker_extra={k: v for k, v in report.items() if k not in ("task", "version", "passed", "checks")},
     )
 
 
 run_brief_trial.workflow_name = "brief+repair"  # type: ignore[attr-defined]
 
 Workflow = Callable[[BenchTask, Path, Executor, int], TrialOutcome]
+# Keys are "<task id>" (any version) or "<task id>@v<version>" (that version only;
+# checked first). v1 and v2 of a task share an id; only their grading differs.
 WORKFLOWS: dict[str, Workflow] = {
     "morning-brief-001": run_brief_trial,
     "morning-brief-002-adversarial": run_brief_trial,
+    "morning-brief-002-adversarial@v2": run_brief_trial,
 }
+
+
+def workflow_for(task: BenchTask) -> Workflow | None:
+    return WORKFLOWS.get(f"{task.id}@v{task.version}") or WORKFLOWS.get(task.id)
 
 
 def _percentile(values: list[float], p: float) -> float | None:
@@ -199,9 +209,9 @@ def run_benchmark(
 ) -> BenchReport:
     if trials < 1:
         raise ValueError("trials must be >= 1")
-    workflow = workflow or WORKFLOWS.get(task.id)
+    workflow = workflow or workflow_for(task)
     if workflow is None:
-        raise BenchError(f"no workflow registered for task {task.id!r}")
+        raise BenchError(f"no workflow registered for task {task.id!r} v{task.version}")
     started = datetime.now(timezone.utc).isoformat()
     outcomes = []
     with tempfile.TemporaryDirectory(prefix=f"senseibench-{task.id}-") as root:
@@ -301,6 +311,10 @@ def format_summary(report: BenchReport, results_path: Path | None = None) -> str
         f"pass^1 {pct(a['pass^1'])}   pass@{k} {pct(a[f'pass@{k}'])}   pass^{k} {pct(a[f'pass^{k}'])}",
         f"mean est. cost ${a['mean_est_cost_usd']:.4f}   latency p50 {ms(a['latency_ms_p50'])}   p95 {ms(a['latency_ms_p95'])}",
     ]
+    extra_keys = sorted({k for o in report.trials for k in o.checker_extra})
+    for key in extra_keys:
+        values = "   ".join(f"trial {o.trial}: {o.checker_extra.get(key, '-')}" for o in report.trials)
+        lines.append(f"{key} (reported, not graded): {values}")
     if results_path is not None:
         lines.append(f"results: {results_path}")
     return "\n".join(lines)
