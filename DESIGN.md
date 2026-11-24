@@ -122,6 +122,12 @@ on the MacBook and never leaves the machine. Qwen was chosen for the
 strongest tool-calling in its size class and permissive licensing;
 Gemma trails on tool-calling and carries a more restrictive licence.
 This is a router default under Principle 1, not a lock-in.
+Amended 2026-11-24 (hardware): the dev MacBook is an M1 Pro
+with 16 GB unified memory; a 27B-class model needs ~22 GB
+working room and cannot run. Local default on this machine is
+Qwen 8B-class (qwen3:8b). The 27B-class target stands for
+hardware that fits it; the choice is per-machine config
+(Principle 1), never code.
 
 **Decision 4 — Trace store: local JSONL + Langfuse export.** Traces are written as append-only JSONL files
 on the Mac — that is the source of truth: offline, human-readable,
