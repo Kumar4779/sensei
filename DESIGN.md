@@ -93,6 +93,14 @@ never dependent on a vendor. Langfuse sits on top as an export and
 viewing layer for timelines and cost inspection. If Langfuse is
 unavailable, Sensei loses nothing.
 
+**Decision 5 — Memory v1: file-backed inspectable store.** Memory is plain files on the Mac: facts,
+preferences and episodes the user can open, read, edit and delete.
+Deletion is provable — delete the file, probe the store, attest that
+nothing remains. A vector index may be added later only as a derived
+layer, rebuilt from the files and never the source of truth. A vector
+database from day one was rejected: embeddings cannot be read, edited
+or provably deleted, and v1 has one user, not millions of memories.
+
 ## 3. Threat Model
 
 _TBD._
