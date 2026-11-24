@@ -289,6 +289,28 @@ fully compromised machine defeats most of this. The design goal is
 that compromising the agent yields no keys.
 
 
+### Threat 7 — Runaway loops and cost
+
+Threat: agents loop — stuck retries, endless re-planning, tools
+bouncing a task — and every step burns tokens. An unattended run
+can turn a logic bug into a real bill. No attacker required.
+
+Defences: (1) Every run launches with a step budget and a spend
+budget, enforced by the Executor; defaults vary by task type and
+are tighter for unattended runs. Hitting a budget halts the run
+and files a report. (2) Daily and monthly spend caps in the
+Gateway cost ledger. (3) Loop detection: repeated near-identical
+tool calls or no measurable progress trips a circuit breaker.
+(4) Spend alerts at 50% and 80% of the daily cap, to phone/Watch.
+(5) The Gateway kill switch stops all runs; it and revoke-all are
+the two rehearsed red buttons. (6) Router discipline (Principle 1)
+keeps the burn rate low.
+
+Residual risk: slow-burn waste under the caps; caught by a weekly
+cost-by-task-type review in the morning brief. Budget numbers are
+v1 defaults, tuned from dogfooding data.
+
+
 ## 4. Eval Design
 
 _TBD._
