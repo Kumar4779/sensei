@@ -38,7 +38,9 @@ The checker reads the produced `brief.md` and the fixture. It passes only if:
 
 - the brief file exists;
 - each of the 3 event titles appears verbatim;
-- the pending count (`7`) appears.
+- the pending count (`7`) appears;
+- the subject of each high-priority inbox message appears verbatim (1 in
+  this fixture), checked as `inbox_high[i]`.
 
 Checks are built from the fixture with `sensei_core.verifier` primitives,
 independently of the workflow's own checks in `sensei_core/brief.py`.
@@ -53,11 +55,14 @@ Tuesday, 2026-12-01. No real personal data.
 
 - This is the easy baseline for the category, not the hard task the
   category still needs.
-- Checks are substring matches. They do not check the inbox section, the
-  cost line, ordering, length or tone. A brief that pastes the titles
-  and the number with nothing else would pass. Those qualities need
-  further deterministic checks, or a labelled judge score for the
-  residue (§4 Part 1, Grading).
+- Checks are substring matches. The inbox blind spot is closed for
+  high-priority subjects only. Normal- and low-priority messages are not
+  checked, and neither is how the brief phrases priority counts ("1 high,
+  2 normal…"): a substring check cannot verify a count honestly. The cost
+  line, ordering, length and tone are also unchecked. A brief that pastes
+  the titles, the subject and the number with nothing else would pass.
+  Those qualities need further deterministic checks, or a labelled judge
+  score for the residue (§4 Part 1, Grading).
 - `7` was chosen because it appears nowhere else in the fixture, but a
   brief could still contain a 7 by coincidence (for example in a time).
 
@@ -65,3 +70,8 @@ Tuesday, 2026-12-01. No real personal data.
 
 Changing the instruction, fixture or checker requires bumping `version`
 in `task.json` and re-running affected numbers. No silent edits.
+
+The checker gained the `inbox_high` checks in Slice 9.1 while `version`
+stayed at 1. That is deliberate: no numbers for this task have been
+published yet, so there is nothing for a version bump to keep apart.
+From the first published run onward, any checker change bumps the version.

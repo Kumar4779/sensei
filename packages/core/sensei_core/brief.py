@@ -93,6 +93,10 @@ def brief_checks(data: MorningData, out_path: str | Path) -> list[Check]:
     checks: list[Check] = [FileExists(out_path)]
     checks += [FileContains(out_path, e["title"], label=f"event[{i}]") for i, e in enumerate(data.events)]
     checks.append(FileContains(out_path, str(data.pending_count), label="pending_count"))
+    # High-priority mail is the part of a brief the user acts on; it must be
+    # verifiably present, like events. Indexed among high-priority messages.
+    high = [m for m in data.inbox if m["priority"] == "high"]
+    checks += [FileContains(out_path, m["subject"], label=f"inbox_high[{i}]") for i, m in enumerate(high)]
     return checks
 
 

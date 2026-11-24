@@ -102,3 +102,45 @@ def test_bench_checker_passes_good_and_fails_bad(tmp_path, trace, data):
     assert checker.main(["checker.py", str(good)]) == 0
     assert checker.main(["checker.py", str(bad)]) == 1
     assert checker.main(["checker.py", str(tmp_path / "missing.md")]) == 1
+
+
+def brief_without_high_subject(data):
+    high = [m["subject"] for m in data.inbox if m["priority"] == "high"]
+    text = perfect_brief(data)
+    for subject in high:
+        text = text.replace(subject, "an urgent email")
+    return text
+
+
+def test_missing_high_priority_subject_fails(tmp_path, trace, data):
+    out = tmp_path / "brief.md"
+    text = brief_without_high_subject(data)
+    for e in data.events:
+        assert e["title"] in text
+    assert str(data.pending_count) in text
+    result, _ = run_brief(trace, data, text, out)
+    assert result.verified is False
+    failures = [r.name for r in result.report.results if not r.passed]
+    assert failures == [f"file_contains:{out}#inbox_high[0]"]
+
+
+def test_perfect_actor_includes_high_subject_and_verifies(tmp_path, trace, data):
+    out = tmp_path / "brief.md"
+    result, _ = run_brief(trace, data, perfect_brief(data), out)
+    assert result.verified is True
+    assert "Contract draft needs your sign-off by noon" in out.read_text(encoding="utf-8")
+    names = [r.name for r in result.report.results]
+    assert f"file_contains:{out}#inbox_high[0]" in names
+    assert len(names) == 6  # exists + 3 events + pending + 1 high subject
+
+
+def test_bench_checker_covers_high_priority_subject(tmp_path, trace, data):
+    checker = load_checker()
+    good = tmp_path / "good" / "brief.md"
+    bad = tmp_path / "bad" / "brief.md"
+    run_brief(trace, data, perfect_brief(data), good)
+    run_brief(trace, data, brief_without_high_subject(data), bad)
+    assert checker.check(good).passed is True
+    report = checker.check(bad)
+    assert report.passed is False
+    assert [r.name for r in report.results if not r.passed] == [f"file_contains:{bad}#inbox_high[0]"]

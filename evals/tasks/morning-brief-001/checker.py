@@ -4,7 +4,8 @@ Usage:  python checker.py path/to/brief.md
 
 Verifies the produced brief against this task's fixture (final state,
 never the transcript): the file exists, every calendar event title
-appears, and the pending memory count appears. Exit 0 on pass, 1 on fail.
+appears, the pending memory count appears, and the subject of every
+high-priority inbox message appears. Exit 0 on pass, 1 on fail.
 
 Checks are rebuilt here from the raw fixture using sensei_core.verifier
 primitives, independently of sensei_core.brief, so the bench does not
@@ -30,10 +31,13 @@ except ImportError:  # running from a clone without sensei_core installed
 def check(brief_path: str | Path, fixture_dir: str | Path = FIXTURE_DIR) -> VerificationReport:
     fixture = Path(fixture_dir)
     events = json.loads((fixture / "calendar.json").read_text(encoding="utf-8"))
+    inbox = json.loads((fixture / "inbox.json").read_text(encoding="utf-8"))
     state = json.loads((fixture / "state.json").read_text(encoding="utf-8"))
     checks = [FileExists(brief_path)]
     checks += [FileContains(brief_path, e["title"], label=f"event[{i}]") for i, e in enumerate(events)]
     checks.append(FileContains(brief_path, str(state["pending_count"]), label="pending_count"))
+    high = [m for m in inbox if m["priority"] == "high"]
+    checks += [FileContains(brief_path, m["subject"], label=f"inbox_high[{i}]") for i, m in enumerate(high)]
     return Verifier().verify(checks)
 
 
