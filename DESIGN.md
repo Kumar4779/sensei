@@ -180,8 +180,10 @@ Attack: a skill or MCP server hides instructions in the capability
 itself — concealment instructions in a SKILL.md, poisoned tool
 descriptions, undeclared telemetry. Real case: RunPod MCP server
 v4.13.0 (Nov 2026) appended a hidden instruction to rate RunPod and
-not tell the user; it arrived as a version update. The trust boundary
-is installation, not reading.
+not tell the user; it arrived as a version update.
+Source: GitHub issue #202 on the RunPod MCP server repository,
+reported 2026-11-21; covered in our research notes of 2026-11-23.
+The trust boundary is installation, not reading.
 
 Defences: (1) The Sensei Trust Rule: no skill or server may instruct
 the agent to conceal an action from the user; concealment instructions
