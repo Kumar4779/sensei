@@ -74,6 +74,12 @@ tooling land in Python first; one coherent Python + agentic-AI story.
 TypeScript was rejected because the surfaces are Swift regardless, so
 it buys no end-to-end unity.
 
+**Decision 2 — Repo shape: monorepo with submodules.** Sensei is one monorepo and the flagship release.
+MergeJudge and SkillForge stay standalone repos, consumed as git
+submodules pinned to specific commits; Sensei upgrades a module by
+deliberately moving the pointer. Copying module code into Sensei was
+rejected: copies drift, and every fix would have to be made twice.
+
 ## 3. Threat Model
 
 _TBD._
