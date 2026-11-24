@@ -53,6 +53,10 @@ class Router:
         self._routes = dict(routes)
         self._trace = trace
 
+    def route(self, name: str) -> Route:
+        """Return the configured route by name (KeyError if unknown)."""
+        return self._routes[name]
+
     def decide(self, request: RouteRequest) -> RouteDecision:
         route_name, reason = self._choose(request)
         route = self._routes[route_name]
