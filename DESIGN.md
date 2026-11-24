@@ -311,6 +311,30 @@ cost-by-task-type review in the morning brief. Budget numbers are
 v1 defaults, tuned from dogfooding data.
 
 
+### Threat 8 — Approval fatigue
+
+Threat: the safety system itself. If Sensei asks too often, the
+user approves without reading, and every defence that ends at user
+approval becomes theatre. An attacker can flood the gate, hiding
+one malicious request among boring ones.
+
+Defences: (1) Ask rarely: only irreversible-tier actions ask;
+everything else is digest, never interruption. (2) Every ask is
+decidable in seconds: action, origin, exact content or diff, and
+blast radius. (3) No "approve all," ever; batching is for reading,
+never consent. (4) Friction proportional to risk: routine
+irreversible actions are one tap; high-value ones (payments above a
+user-set threshold, new trusted contacts, permission changes)
+require typed confirmation or a delay. (5) Measure the human:
+approval latency and rate are traced; collapsing decision times
+trigger a fatigue flag to the user and tighter asking.
+(6) Standing permissions expire and are re-confirmed on schedule.
+
+Residual risk: a determined user can rubber-stamp anything; design
+makes real decisions easy and fake ones visible, and measures the
+failure instead of hiding it.
+
+
 ## 4. Eval Design
 
 _TBD._
