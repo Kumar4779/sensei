@@ -32,7 +32,6 @@ What sets it apart is designed in as product features rather than layered on aft
 3. **Permissions are data, not vibes.** Every tool declares its tier
    (read / reversible / irreversible) in a manifest; the control plane
    enforces it, the agent cannot override it.
-   [DRAFT — under review]
 
 4. **Everything is a trace.** Plan, tool calls, screenshots/state,
    model + cost, verifier verdict — append-only, replayable,
