@@ -406,5 +406,5 @@ Implementation does not begin until all of the following are true:
 - [x] §1 Product Definition complete and reviewed (2026-11-24)
 - [x] §2 Architecture complete and reviewed (2026-11-24, commits 9da7bbb–d6af242)
 - [x] §3 Threat Model complete and reviewed (2026-11-24)
-- [ ] §4 Eval Design complete, with SenseiBench specified before any agent code
+- [x] §4 Eval Design complete, with SenseiBench specified before any agent code (2026-11-24)
 - [ ] Design reviewed against all 10 standards in [STANDARDS.md](STANDARDS.md)
