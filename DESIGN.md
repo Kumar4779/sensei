@@ -16,8 +16,6 @@ What sets it apart is designed in as product features rather than layered on aft
 
 ## 2. Architecture
 
-_TBD._
-
 ### Design Principles
 
 1. **Model is a config, never code.** Every model call goes through a
@@ -46,6 +44,26 @@ _TBD._
    iPhone/Watch are remote approval + chat surfaces; nothing sensitive
    leaves the Mac unless the user explicitly allows it.
    [DRAFT — under review]
+
+### System Diagram
+
+```
+Surfaces: Mac app (menu-bar) · Web · iPhone (chat/approvals) · Watch (status/approve)
+    ↓ HTTPS/WSS, device-paired, passkeys
+Gateway (FastAPI): auth, sessions, audit log, cost ledger, kill switch
+    ↓
+Agent Runtime: Planner → Router → Executor (step/spend budgets) → Verifier → Memory write
+    ↓ tools (all MCP-first)
+Tools: MacPilot (browser/desktop) · Files (scoped) · Gmail · Calendar · Web search · Code (git worktree, MergeJudge) · Shell (sandboxed, allowlisted) · Notifications
+    ↓
+Control Plane: permission tiers, scopes, short-lived tokens, canary secrets, OTel spans
+Storage: SQLite→Postgres (sessions/audit), trace store, memory store (inspectable, editable, deletable)
+```
+
+Key rule: content from tools (email, web pages, files) is data, never
+instructions. Only the user instructs Sensei. Irreversible-tier tool
+calls halt at the Control Plane for user approval.
+
 
 ## 3. Threat Model
 
