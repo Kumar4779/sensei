@@ -138,10 +138,6 @@ or provably deleted, and v1 has one user, not millions of memories.
 
 _TBD._
 
-Open item (from Principle 4): trace retention and redaction policy —
-how long traces live, what gets masked, who can read them — must be
-decided in this step.
-
 Open item (from Principle 5): sensitivity classification rule —
 starting proposal is classification by source: personal stores
 (memory, messages, health, money) are local-only; everything else may
@@ -223,6 +219,31 @@ Residual risk: slow poisoning via the user's own repeated exposure
 cannot be fully separated from genuine preference change; provenance
 and the changelog keep it reversible.
 
+
+### Threat 4 — Trace leakage: retention and redaction
+
+Threat: traces record everything (Principle 4), making the trace
+store the most sensitive artifact Sensei owns. Risks: device or
+backup theft, accidental sharing of logs, and over-retention.
+
+Policy: (1) Local-only by default; traces live on the Mac under
+FileVault, and Langfuse receives exports only when the user exports,
+in redacted form. (2) Redaction at write time: secrets (API keys,
+passwords, one-time codes, card numbers) are masked before a trace
+line is written; MacPilot screenshots mask secure fields where the
+platform marks them. (3) Retention: full traces roll for 90 days,
+then compress to content-free summaries (task, verdict, cost) unless
+the user pins them; configurable, these are the defaults.
+(4) Deletion with honesty: the user may purge by date range; the
+purge writes a tombstone entry so the append-only record stays
+truthful about its gaps. (5) Any trace export passes a secret scan
+and a user preview before leaving the machine (irreversible-tier).
+
+Residual risk: redaction can miss novel secret formats; screenshots
+can capture sensitive content outside marked fields. Retention and
+local-only storage bound the exposure.
+
+This closes the open item parked from Principle 4.
 
 ## 4. Eval Design
 
