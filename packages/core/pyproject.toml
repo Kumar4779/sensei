@@ -17,7 +17,7 @@ dev = ["pytest>=7.4"]
 packages = ["sensei_core"]
 
 [tool.setuptools.package-data]
-sensei_core = ["models.toml"]
+sensei_core = ["models.toml", "tools.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

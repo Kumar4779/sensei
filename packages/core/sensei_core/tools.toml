@@ -1,0 +1,32 @@
+# Sensei tool manifest — permissions are data, not vibes (DESIGN.md Principle 3).
+# The Control Plane enforces these entries; the agent cannot override them.
+#
+# tier:        read | reversible | irreversible
+# sensitivity: classes a tool may receive (DESIGN.md Threat 5).
+# endpoints:   declared egress labels (DESIGN.md Threat 2); placeholders only.
+#              A tool with any endpoint may not accept LOCAL_ONLY content.
+
+[tools.web_search]
+tier = "read"
+sensitivity = ["API_OK"]
+endpoints = ["search-provider"]
+
+[tools.read_file]
+tier = "read"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.write_file]
+tier = "reversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.send_email]
+tier = "irreversible"
+sensitivity = ["API_OK"]
+endpoints = ["mail-provider"]
+
+[tools.shell]
+tier = "reversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
