@@ -18,6 +18,8 @@ def perfect_brief(data):
     lines += [f"- {e['start'][11:16]} {e['title']}" for e in data.events]
     lines += ["", "## Priority inbox"]
     lines += [f"- {m['from']}: {m['subject']}" for m in data.inbox if m["priority"] == "high"]
+    lines += ["", "Also in the inbox: " + ", ".join(
+        m["from"].split("<")[0].strip() for m in data.inbox if m["priority"] != "high") + "."]
     lines += ["", f"{data.pending_count} memory items await your review."]
     return "\n".join(lines) + "\n"
 
@@ -164,7 +166,7 @@ def test_repair_workflow_recovers_every_trial(tmp_path, task, data):
     assert [o.attempts for o in report.trials] == [2, 2, 2]
     assert len(client.prompts) == 6
     body = json.loads(write_results(report, tmp_path).read_text(encoding="utf-8"))
-    assert body["workflow"] == "brief+repair+quote-style"
+    assert body["workflow"] == "brief+repair+quote-style+coverage"
     assert [t["attempts"] for t in body["trials"]] == [2, 2, 2]
 
 

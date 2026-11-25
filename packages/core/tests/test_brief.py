@@ -36,6 +36,8 @@ def perfect_brief(data):
     lines += [f"- {e['start'][11:16]} {e['title']}" for e in data.events]
     lines += ["", "## Priority inbox"]
     lines += [f"- {m['from']}: {m['subject']}" for m in data.inbox if m["priority"] == "high"]
+    lines += ["", "Also in the inbox: " + ", ".join(
+        m["from"].split("<")[0].strip() for m in data.inbox if m["priority"] != "high") + "."]
     lines += ["", f"{data.pending_count} memory items await your review.",
               f"Yesterday's Sensei cost: ${data.yesterday_cost_usd:.2f}."]
     return "\n".join(lines) + "\n"
@@ -131,7 +133,7 @@ def test_perfect_actor_includes_high_subject_and_verifies(tmp_path, trace, data)
     assert "Contract draft needs your sign-off by noon" in out.read_text(encoding="utf-8")
     names = [r.name for r in result.report.results]
     assert f"file_contains:{out}#inbox_high[0]" in names
-    assert len(names) == 6  # exists + 3 events + pending + 1 high subject
+    assert len(names) == 10  # exists + 3 events + pending + 1 high subject + 4 coverage
 
 
 def test_bench_checker_covers_high_priority_subject(tmp_path, trace, data):
@@ -211,3 +213,47 @@ def test_repair_is_off_by_default(tmp_path, trace, data):
     result = build_brief(executor, data, tmp_path / "brief.md", trace=trace)
     assert result.verified is False and result.attempts == 1
     assert len(client.prompts) == 1
+
+
+# ---- Slice 17: coverage in the workflow's own checks -------------------------
+
+from sensei_core.brief import brief_checks, compose_repair_prompt  # noqa: E402
+from sensei_core.verifier import FileContainsAny  # noqa: E402
+
+
+def test_brief_checks_cover_every_inbox_message(tmp_path, data):
+    out = tmp_path / "brief.md"
+    coverage = [c for c in brief_checks(data, out) if isinstance(c, FileContainsAny)]
+    assert [c.label for c in coverage] == ["coverage[0]", "coverage[1]", "coverage[2]", "coverage[3]"]
+    assert [c.texts for c in coverage] == [
+        ("Alex Rivera", "Contract draft needs your sign-off by noon"),
+        ("Priya Natarajan", "Photos from the weekend hike"),
+        ("Lantern Books", "December reading list"),
+        ("Kenji Morimoto", "Re: dinner on Friday?"),
+    ]
+    assert all(c.ignore_case for c in coverage)
+
+
+def without_message(data, i):
+    return perfect_brief(data).replace(data.inbox[i]["from"].split("<")[0].strip(), "someone")
+
+
+def test_repair_recovers_a_dropped_message(tmp_path, trace, data):
+    client = Scripted(without_message(data, 2), perfect_brief(data))
+    result = run_with(trace, data, client, tmp_path / "brief.md")
+    assert result.attempts == 2
+    assert [r.name.split("#")[-1] for r in result.first_report.results if not r.passed] == ["coverage[2]"]
+    assert result.verified is True and result.report.passed is True  # final run, re-verified
+    repair_prompt = client.prompts[1]
+    assert "Items your previous brief missed: coverage[2]" in repair_prompt
+    assert "- coverage[2]: a mention of Lantern Books or the subject 'December reading list'" in repair_prompt
+    [event] = [e for e in read_events(trace.path) if e["event_type"] == "repair_attempted"]
+    assert event["payload"] == {"failed_labels": ["coverage[2]"], "verified": True}
+
+
+def test_repair_prompt_maps_every_coverage_label(data):
+    prompt = compose_repair_prompt(data, ["coverage[0]"])
+    for i, m in enumerate(data.inbox):
+        name = m["from"].split("<")[0].strip()
+        assert f"- coverage[{i}]: a mention of {name} or the subject '{m['subject']}'" in prompt
+    assert "file_contains_any" not in prompt

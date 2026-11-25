@@ -248,6 +248,6 @@ def test_bench_runs_v3_and_names_coverage_failures(tmp_path, data):
     [trial] = report.trials
     assert trial.passed is False
     assert any(f"coverage[{a}]" in name for name in trial.failed_checks)
-    assert report.workflow == "brief+repair+quote-style"
+    assert report.workflow == "brief+repair+quote-style+coverage"
     path = write_results(report, tmp_path)
     assert path.name.startswith("morning-brief-002-adversarial-v3-")

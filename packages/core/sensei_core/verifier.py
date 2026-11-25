@@ -62,6 +62,31 @@ class FileContains:
 
 
 @dataclass(frozen=True)
+class FileContainsAny:
+    """Passes if the file contains at least one of texts (an OR of FileContains)."""
+
+    path: str | Path
+    texts: tuple[str, ...]
+    label: str = ""
+    ignore_case: bool = False
+
+    @property
+    def name(self) -> str:
+        return f"file_contains_any:{self.path}" + (f"#{self.label}" if self.label else "")
+
+    def run(self) -> CheckResult:
+        p = Path(self.path)
+        if not p.is_file():
+            return CheckResult(self.name, False, "file not found")
+        content = p.read_text(encoding="utf-8")
+        needles = [t for t in self.texts if t]
+        if self.ignore_case:
+            content, needles = content.casefold(), [t.casefold() for t in needles]
+        ok = any(t in content for t in needles)
+        return CheckResult(self.name, ok, "one expected text found" if ok else "none of the expected texts found")
+
+
+@dataclass(frozen=True)
 class FileNotContains:
     """Passes only if the file exists and does NOT contain text (absence check)."""
 

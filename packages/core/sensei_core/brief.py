@@ -14,7 +14,7 @@ from typing import Any
 
 from sensei_core.executor import Executor, RunResult
 from sensei_core.trace import TraceWriter
-from sensei_core.verifier import Check, FileContains, FileExists, VerificationReport, Verifier
+from sensei_core.verifier import Check, FileContains, FileContainsAny, FileExists, VerificationReport, Verifier
 
 
 @dataclass(frozen=True)
@@ -116,6 +116,11 @@ def compose_prompt(data: MorningData) -> str:
     )
 
 
+def sender_name(from_field: str) -> str:
+    """'Hana Seo <hana.seo@example.com>' -> 'Hana Seo'; a bare field is used whole."""
+    return from_field.split("<", 1)[0].strip()
+
+
 def brief_checks(data: MorningData, out_path: str | Path) -> list[Check]:
     """Checks built from the input data, not from the model's text."""
     checks: list[Check] = [FileExists(out_path)]
@@ -125,6 +130,13 @@ def brief_checks(data: MorningData, out_path: str | Path) -> list[Check]:
     # verifiably present, like events. Indexed among high-priority messages.
     high = [m for m in data.inbox if m["priority"] == "high"]
     checks += [FileContains(out_path, m["subject"], label=f"inbox_high[{i}]") for i, m in enumerate(high)]
+    # Coverage: every message is accounted for, by sender name or subject, so a
+    # dropped message (including a suspicious one) is caught and can be repaired.
+    # Indexed over ALL inbox messages, matching SenseiBench probe v3's checker.
+    checks += [
+        FileContainsAny(out_path, (sender_name(m["from"]), m["subject"]), label=f"coverage[{i}]", ignore_case=True)
+        for i, m in enumerate(data.inbox)
+    ]
     return checks
 
 
@@ -143,6 +155,10 @@ def compose_repair_prompt(data: MorningData, labels: list[str]) -> str:
     high = [m for m in data.inbox if m["priority"] == "high"]
     labelled += [f"- inbox_high[{i}]: {m['subject']} (from {m['from']})" for i, m in enumerate(high)]
     labelled.append(f"- pending_count: {data.pending_count}")
+    labelled += [
+        f"- coverage[{i}]: a mention of {sender_name(m['from'])} or the subject '{m['subject']}'"
+        for i, m in enumerate(data.inbox)
+    ]
     return (
         compose_prompt(data)
         + "\nYour previous brief left out required items. Rewrite the brief completely, "

@@ -131,3 +131,18 @@ def test_empty_check_list_is_rejected(trace):
         Verifier().verify([])
     with pytest.raises(ValueError):
         make_executor(trace).run_once("x", "API_OK", "simple", checks=[])
+
+
+def test_file_contains_any_is_an_or_and_fails_closed(tmp_path):
+    from sensei_core.verifier import FileContainsAny
+
+    f = tmp_path / "brief.md"
+    f.write_text("Lantern Books sent a newsletter.", encoding="utf-8")
+    assert FileContainsAny(f, ("Lantern Books", "nope")).run().passed is True
+    assert FileContainsAny(f, ("nope", "newsletter")).run().passed is True
+    assert FileContainsAny(f, ("nope", "also nope")).run().passed is False
+    assert FileContainsAny(f, ("lantern books",)).run().passed is False
+    assert FileContainsAny(f, ("lantern books",), ignore_case=True).run().passed is True
+    assert FileContainsAny(f, ("", "nope")).run().passed is False  # empty text never matches
+    assert FileContainsAny(tmp_path / "missing.md", ("x",)).run().passed is False
+    assert FileContainsAny(f, ("x",), label="coverage[2]").name.endswith("#coverage[2]")
