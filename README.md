@@ -233,6 +233,50 @@ and pass^3 means all 3 passed (the headline reliability number).
   and [`evals/results/morning-brief-002-adversarial-v3-20261125-6.json`](evals/results/morning-brief-002-adversarial-v3-20261125-6.json) (row 17).
   Reproduce with `cd packages/core && python -m sensei_core.bench ../../evals/tasks/morning-brief-001 --trials 3`.
 
+## Custodian: Sensei's memory over MCP (Slice 21)
+
+Sensei's memory store, shared with any MCP client (Claude Code included), with
+its gates intact. Run it as a local stdio server; there is no network listener:
+
+```
+cd packages/core && python -m sensei_core.custodian_server serve [--root DIR]
+```
+
+- **Four tools:**
+  - `memory_search(query)`: concept search over **active** entries, returning
+    ids and short summaries.
+  - `memory_get(id)`: one full entry, with its provenance.
+  - `memory_propose(text, category)`: a new entry, stored as pending.
+  - `memory_list_pending()`: entries awaiting confirmation.
+- **No client can activate anything.** A proposal is stored through
+  `MemoryStore.propose`, with `source=tool_content` and
+  `origin="mcp:<client name>"`. It becomes active only when the user confirms
+  it Sensei-side (`python -m sensei_core.custodian_server confirm <id>`).
+  Confirming is deliberately not an MCP tool. The `MemoryStore` file format
+  and its semantics are unchanged.
+- **Embeddings are a derived layer.** They are computed locally with
+  `nomic-embed-text` via Ollama (`[embeddings]` in `models.toml`) and kept in
+  `<root>/derived/embeddings.json`. The index holds vectors only, never fact
+  text. It is re-synced from the entry files before every search and propose,
+  so deleting it and rebuilding reproduces it, and a deleted entry leaves
+  search at once. If Ollama is unavailable, search falls back to keyword
+  matching and says so (`mode: keyword`).
+- **Dedup flags, never drops.** A proposal close to an active entry is still
+  stored, with `possible_duplicate_of: <id>` appended to its origin.
+- **Every call is traced** (`mcp_tool_call`): client, operation, entry ids and
+  counts, never entry text.
+- **Live check (2026-11-25):** a real MCP client (the official Python SDK,
+  over stdio) worked against a scratch store with real embeddings.
+  - It proposed "The user prefers aisle seats on flights." The entry came back
+    `proposed` and appeared in `memory_list_pending`.
+  - It proposed "User has a peanut allergy." That entry was stored and flagged
+    as a possible duplicate of the user's active "The user is allergic to
+    peanuts." (similarity 0.894).
+  - After a Sensei-side `confirm`, the search "seating preference when flying"
+    returned the aisle-seat entry (score 0.792), with no shared keywords. An
+    unrelated query ("favourite football team") returned nothing.
+  - Claude Code itself was not connected in this check.
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE). Model licences are listed in [NOTICE](NOTICE).

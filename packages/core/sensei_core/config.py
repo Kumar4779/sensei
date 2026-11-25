@@ -89,3 +89,32 @@ def load_models(path: str | Path = DEFAULT_MODELS_PATH) -> dict[str, Route]:
     if not isinstance(routes, dict) or not routes:
         raise ConfigError("models file must define at least one [routes.<name>] table")
     return {name: _parse_route(name, raw) for name, raw in routes.items()}
+
+
+@dataclass(frozen=True)
+class EmbeddingsConfig:
+    """The [embeddings] table: the model behind the Custodian's derived index."""
+
+    provider: str
+    model: str
+    search_min_score: float
+    dedup_threshold: float
+
+
+def load_embeddings(path: str | Path = DEFAULT_MODELS_PATH) -> EmbeddingsConfig:
+    """Load and validate the [embeddings] table; raise ConfigError if missing or invalid."""
+    with Path(path).open("rb") as f:
+        raw = tomllib.load(f).get("embeddings")
+    if not isinstance(raw, dict):
+        raise ConfigError("models file must define an [embeddings] table")
+    for key in ("provider", "model", "search_min_score", "dedup_threshold"):
+        if key not in raw:
+            raise ConfigError(f"[embeddings] is missing {key!r}")
+    if raw["provider"] != "ollama":
+        raise ConfigError(f"[embeddings] provider {raw['provider']!r} is not supported (local only: 'ollama')")
+    for key in ("search_min_score", "dedup_threshold"):
+        v = raw[key]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
+            raise ConfigError(f"[embeddings] {key} must be a number in [0, 1]")
+    return EmbeddingsConfig(str(raw["provider"]), str(raw["model"]), float(raw["search_min_score"]),
+                            float(raw["dedup_threshold"]))

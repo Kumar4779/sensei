@@ -36,3 +36,14 @@ tier = "frontier_api"
 sensitivity = ["API_OK"]
 max_sensitivity = "API_OK"
 est_cost_per_1k_tokens = 0.01
+
+# Custodian (Slice 21): embeddings for the memory index, a DERIVED layer rebuilt
+# from the entry files. Thresholds measured on nomic-embed-text, no task prefixes
+# (2026-11-25, 5 facts x 6 queries, 4 near-duplicate pairs):
+#   concept queries: right fact ranked first 5/5, scores 0.58-0.79; unrelated query best 0.41
+#   paraphrase duplicates 0.89-0.92; a different fact on the same pattern 0.83
+[embeddings]
+provider = "ollama"
+model = "nomic-embed-text"
+search_min_score = 0.50
+dedup_threshold = 0.88

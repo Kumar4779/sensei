@@ -5,12 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sensei_core"
 version = "0.1.0"
-description = "Sensei core: trace store and model routing config"
+description = "Sensei core: trace store, model routing config, memory and the Custodian MCP server"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
+    "mcp>=2.3",  # Custodian MCP server (Slice 21), stdio transport only
 ]
 
 [project.optional-dependencies]
