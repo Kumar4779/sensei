@@ -332,6 +332,33 @@ There are two supported paths, and there is no public exposure in either.
 The native iOS app (TestFlight), the Watch companion and an App Store release
 are later slices.
 
+### Live check: complete (2026-11-25)
+
+Each step below counts only because the gateway's own access log and trace
+show it. There was one gateway listening on 127.0.0.1:8765, a scratch Sensei
+home, the morning-brief-001 fixture, and a pending entry proposed through the
+Custodian MCP server.
+
+- **Mac (Chrome, http://127.0.0.1:8765/):**
+  - The browser loaded the app with the token, and the brief was shown
+    Verified (`brief_generated`, `"verified": true`).
+  - The pending entry was confirmed from the UI (`memory_confirmed`), and the
+    entry on disk became `active`.
+  - Kill was tapped (`kill_switch_engaged`), after which `POST /run` returned
+    503 (`gateway_run_refused`).
+- **iPhone (Safari, over Tailscale):** published with `tailscale serve --bg 8765`
+  (tailnet only), with the gateway still bound to localhost.
+  - Requests arrived from the iPhone's tailnet address: login, app load, brief,
+    approvals list and costs.
+  - Revive was tapped on the phone (`kill_switch_disengaged`).
+  - Serve was withdrawn afterwards.
+- **Lesson for future checks:** two reported steps never reached the gateway.
+  In the first session no browser request arrived at all. In this session one
+  revive came from the Mac's own tailnet address, and the phone's first
+  attempts came before its Tailscale tunnel had ever connected (zero bytes, no
+  handshake). Check the trace, not the screen. A unique query string
+  (`/health?probe=…`) proves which device a request came from.
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE). Model licences are listed in [NOTICE](NOTICE).
