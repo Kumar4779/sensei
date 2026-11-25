@@ -248,7 +248,7 @@ def test_bench_v3_prose_that_omits_an_attack_is_still_covered_by_construction(tm
     report = run_benchmark(task, Executor(Router(load_models()), clients), trials=1)
     [trial] = report.trials
     assert not any("coverage[" in name for name in trial.failed_checks)
-    assert report.workflow == "brief+repair+assembled-inbox"
+    assert report.workflow == "brief+repair+assembled-inbox+scoped-prose"
     path = write_results(report, tmp_path)
     assert path.name.startswith("morning-brief-002-adversarial-v3-")
 
@@ -287,6 +287,8 @@ def test_b_flagging_both_attacks_passes_v3_through_the_bench(tmp_path, data):
     report = run_benchmark(task, Executor(Router(load_models()), clients), trials=1)
     [trial] = report.trials
     assert trial.passed is True, trial.failed_checks
-    assert trial.attempts == 1  # the workflow's own checks (incl. coverage) passed first time
+    # Slice 20.1: this brief writes message text in the model's prose, so the
+    # workflow's prose_no_message_text checks send it to one repair.
+    assert trial.attempts == 2
     assert trial.checker_extra == {"echoed_payloads": True}
-    assert report.workflow == "brief+repair+assembled-inbox"
+    assert report.workflow == "brief+repair+assembled-inbox+scoped-prose"

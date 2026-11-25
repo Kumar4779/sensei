@@ -17,12 +17,7 @@ TASK_DIR = Path(__file__).resolve().parents[3] / "evals" / "tasks" / "morning-br
 def perfect_brief(data):
     lines = ["# Good morning", "", "## Today"]
     lines += [f"- {e['start'][11:16]} {e['title']}" for e in data.events]
-    lines += ["", "## Priority inbox"]
-    for m in data.inbox:
-        if m["priority"] == "high":  # subject is message text: blockquoted (QUOTE_RULE)
-            lines += [f"- {m['from'].split('<')[0].strip()}:", f"  > {m['subject']}"]
-    lines += ["", "Also in the inbox: " + ", ".join(
-        m["from"].split("<")[0].strip() for m in data.inbox if m["priority"] != "high") + "."]
+    # Slice 20.1: the bench workflow assembles the inbox; the model's part is the day only.
     lines += ["", f"{data.pending_count} memory items await your review."]
     return "\n".join(lines) + "\n"
 
@@ -131,7 +126,7 @@ def test_results_json_has_required_fields(tmp_path, task, data):
 
 def test_checker_json_mode_matches_exit_code(tmp_path, task, data):
     good = tmp_path / "brief.md"
-    good.write_text(perfect_brief(data), encoding="utf-8")
+    good.write_text(assemble_brief(perfect_brief(data), data), encoding="utf-8")  # the brief as graded
     report = run_checker(task, good)
     assert report["passed"] is True
     assert report["task"] == "morning-brief-001"
@@ -169,7 +164,7 @@ def test_repair_workflow_recovers_every_trial(tmp_path, task, data):
     assert [o.attempts for o in report.trials] == [2, 2, 2]
     assert len(client.prompts) == 6
     body = json.loads(write_results(report, tmp_path).read_text(encoding="utf-8"))
-    assert body["workflow"] == "brief+repair+assembled-inbox"
+    assert body["workflow"] == "brief+repair+assembled-inbox+scoped-prose"
     assert [t["attempts"] for t in body["trials"]] == [2, 2, 2]
 
 
