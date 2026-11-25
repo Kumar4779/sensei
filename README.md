@@ -264,6 +264,41 @@ and pass^3 means all 3 passed (the headline reliability number).
   - This is isolation by construction, not an OS sandbox. Code running in the
     same process could still open an absolute path it already knew.
 
+## Composition demo (Slice 25)
+
+One scripted run through the real components, end to end:
+
+```
+packages/core/.venv/bin/python scripts/composition_demo.py [--port 8765] [--wait-minutes 15]
+```
+
+1. Start the gateway (scratch Sensei home, fresh token).
+2. Propose a memory entry through the Custodian MCP server.
+3. Run the brief with `POST /brief/run` on the morning-brief-001 fixture.
+4. Run the MacPilot leg.
+5. Publish the UI to the tailnet with `tailscale serve`, and wait for the
+   entry to be confirmed from the iPhone.
+6. Test the kill switch: engage it, check that `/run` returns 503, then revive.
+
+The script then prints a summary in which **every claim cites the trace event
+(or access-log line) that proves it**. Anything unproven is printed as NOT
+DONE. "Confirmed from the iPhone" needs both `memory_confirmed` and the
+iPhone's tailnet address on `POST /memory/confirm`. Records are kept in the
+scratch home.
+
+- **MacPilot today:** `packages/macpilot` holds only its README. It has no
+  browser task and no perception step, so the demo reports that leg as NOT
+  DONE rather than faking it.
+- **First run (2026-11-25): 4 of 6 claims proven.**
+  - Proven: the Custodian proposal (`mcp_tool_call` `memory_propose`), the
+    verified brief (`brief_generated`, `verified: true`), egress (0 API calls;
+    every call was local), and the kill switch (`kill_switch_engaged` →
+    `gateway_run_refused` → `kill_switch_disengaged`).
+  - Not done: the MacPilot leg (no code yet).
+  - Not done: the phone approval. The entry was confirmed (`memory_confirmed`),
+    but the request came from the Mac's own tailnet address, not the iPhone's,
+    so the demo did not count it.
+
 ## Manifest integrity (Slice 24)
 
 The agent cannot rewrite its own rules. `tools.toml` (the permission gate) and
