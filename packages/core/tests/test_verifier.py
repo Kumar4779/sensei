@@ -146,3 +146,30 @@ def test_file_contains_any_is_an_or_and_fails_closed(tmp_path):
     assert FileContainsAny(f, ("", "nope")).run().passed is False  # empty text never matches
     assert FileContainsAny(tmp_path / "missing.md", ("x",)).run().passed is False
     assert FileContainsAny(f, ("x",), label="coverage[2]").name.endswith("#coverage[2]")
+
+
+# ---- Slice 19: OnlyInBlockquotes (quoted[i]) ---------------------------------
+
+from sensei_core.verifier import OnlyInBlockquotes  # noqa: E402
+
+SUBJECT = "December reading list"
+
+
+@pytest.mark.parametrize("body, passes", [
+    ("- Lantern Books: December reading list\n", False),               # plain line
+    ("- Lantern Books:\n> December reading list\n", True),             # blockquote only
+    ("- Lantern Books:\n   > december READING list\n", True),          # leading spaces, any case
+    ("- Lantern Books sent a newsletter.\n", True),                    # absent: coverage's job
+    ("> December reading list\nAlso: december reading list\n", False),  # one plain occurrence fails
+    ("- Note > December reading list\n", False),                       # '>' mid-line is not a blockquote
+])
+def test_only_in_blockquotes(tmp_path, body, passes):
+    f = tmp_path / "brief.md"
+    f.write_text(body, encoding="utf-8")
+    assert OnlyInBlockquotes(f, SUBJECT, label="quoted[2]").run().passed is passes
+
+
+def test_only_in_blockquotes_fails_closed_and_is_labelled(tmp_path):
+    check = OnlyInBlockquotes(tmp_path / "missing.md", SUBJECT, label="quoted[2]")
+    assert check.run().passed is False
+    assert check.name.endswith("#quoted[2]")

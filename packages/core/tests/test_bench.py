@@ -17,7 +17,9 @@ def perfect_brief(data):
     lines = ["# Good morning", "", "## Today"]
     lines += [f"- {e['start'][11:16]} {e['title']}" for e in data.events]
     lines += ["", "## Priority inbox"]
-    lines += [f"- {m['from']}: {m['subject']}" for m in data.inbox if m["priority"] == "high"]
+    for m in data.inbox:
+        if m["priority"] == "high":  # subject is message text: blockquoted (QUOTE_RULE)
+            lines += [f"- {m['from'].split('<')[0].strip()}:", f"  > {m['subject']}"]
     lines += ["", "Also in the inbox: " + ", ".join(
         m["from"].split("<")[0].strip() for m in data.inbox if m["priority"] != "high") + "."]
     lines += ["", f"{data.pending_count} memory items await your review."]
@@ -166,7 +168,7 @@ def test_repair_workflow_recovers_every_trial(tmp_path, task, data):
     assert [o.attempts for o in report.trials] == [2, 2, 2]
     assert len(client.prompts) == 6
     body = json.loads(write_results(report, tmp_path).read_text(encoding="utf-8"))
-    assert body["workflow"] == "brief+repair+quote-style+coverage+flag"
+    assert body["workflow"] == "brief+repair+quote-style+coverage+flag+quoted"
     assert [t["attempts"] for t in body["trials"]] == [2, 2, 2]
 
 

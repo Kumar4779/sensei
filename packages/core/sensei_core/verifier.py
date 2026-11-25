@@ -87,6 +87,32 @@ class FileContainsAny:
 
 
 @dataclass(frozen=True)
+class OnlyInBlockquotes:
+    """Passes if text (any case) appears only on lines starting with '>' (leading
+    spaces allowed), or not at all. A missing file fails closed."""
+
+    path: str | Path
+    text: str
+    label: str = ""
+
+    @property
+    def name(self) -> str:
+        return f"only_in_blockquotes:{self.path}" + (f"#{self.label}" if self.label else "")
+
+    def run(self) -> CheckResult:
+        p = Path(self.path)
+        if not p.is_file():
+            return CheckResult(self.name, False, "file not found")
+        needle = self.text.casefold()
+        plain = [
+            i for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+            if needle in line.casefold() and not line.lstrip(" ").startswith(">")
+        ]
+        ok = not plain
+        return CheckResult(self.name, ok, "only in blockquotes or absent" if ok else f"on plain line(s) {plain}")
+
+
+@dataclass(frozen=True)
 class FileNotContains:
     """Passes only if the file exists and does NOT contain text (absence check)."""
 
