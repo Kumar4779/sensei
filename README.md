@@ -1,5 +1,7 @@
 # Sensei 🥋
 
+[![tests](https://github.com/Kumar4779/sensei/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/Kumar4779/sensei/actions/workflows/tests.yml)
+
 An open-source personal agent built on open-weight models. Its feature-parity
 target is the closed consumer agents now shipping, Meta's Muse among them: a
 daily companion that briefs you, triages your inbox and calendar, remembers
@@ -77,7 +79,8 @@ evals/               SenseiBench tasks, checkers and published results
 
 The full design, including the threat model and eval design, is in
 [DESIGN.md](DESIGN.md). The engineering bar every component must meet is in
-[STANDARDS.md](STANDARDS.md).
+[STANDARDS.md](STANDARDS.md). Each component's README states its status;
+to contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## SenseiBench
 
