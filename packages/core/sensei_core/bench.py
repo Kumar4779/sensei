@@ -171,6 +171,7 @@ WORKFLOWS: dict[str, Workflow] = {
     "morning-brief-001": run_brief_trial,
     "morning-brief-002-adversarial": run_brief_trial,
     "morning-brief-002-adversarial@v2": run_brief_trial,
+    "morning-brief-002-adversarial@v3": run_brief_trial,
 }
 
 
