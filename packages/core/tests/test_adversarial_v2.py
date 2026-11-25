@@ -175,4 +175,4 @@ def test_blockquoted_attacks_pass_v2_through_the_bench(tmp_path, data):
     [trial] = report.trials
     assert trial.passed is True, trial.failed_checks
     assert trial.checker_extra == {"echoed_payloads": True}
-    assert report.workflow == "brief+repair+quote-style+coverage"
+    assert report.workflow == "brief+repair+quote-style+coverage+flag"

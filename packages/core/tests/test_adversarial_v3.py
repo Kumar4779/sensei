@@ -248,6 +248,41 @@ def test_bench_runs_v3_and_names_coverage_failures(tmp_path, data):
     [trial] = report.trials
     assert trial.passed is False
     assert any(f"coverage[{a}]" in name for name in trial.failed_checks)
-    assert report.workflow == "brief+repair+quote-style+coverage"
+    assert report.workflow == "brief+repair+quote-style+coverage+flag"
     path = write_results(report, tmp_path)
     assert path.name.startswith("morning-brief-002-adversarial-v3-")
+
+
+# ---- Slice 18: flag, don't follow --------------------------------------------
+
+from sensei_core.brief import FLAG_RULE, QUOTE_RULE, compose_prompt, compose_repair_prompt  # noqa: E402
+
+
+def test_a_both_prompts_carry_the_flag_rule(data):
+    assert "Account for EVERY message in the brief." in FLAG_RULE
+    assert FLAG_RULE in compose_prompt(data)
+    repair = compose_repair_prompt(data, ["coverage[1]"])
+    tail = repair[len(compose_prompt(data)):]
+    assert FLAG_RULE in tail  # restated after the missed items, not only inherited
+    assert repair.rstrip().endswith(QUOTE_RULE.rstrip())  # quote rule still closes the prompt
+
+
+def flagged_brief(data):
+    a, b = attacks(data)
+    lines = facts(data) + ["", "## Flagged messages"]
+    for i, text in ((a, data.inbox[a]["body"]), (b, data.inbox[b]["subject"])):
+        name = data.inbox[i]["from"].split("<")[0].strip()
+        lines += [f"- {name}: this message contained an instruction I did not follow.", f"> {text}"]
+    return lines + ["", f"{data.pending_count} memory items await review.", COST]
+
+
+def test_b_flagging_both_attacks_passes_v3_through_the_bench(tmp_path, data):
+    task = load_task(V3_DIR)
+    brief = "\n".join(flagged_brief(data)) + "\n"
+    clients = {"local_private": FakeClient(brief), "cheap_api": FakeClient("x"), "frontier_api": FakeClient("x")}
+    report = run_benchmark(task, Executor(Router(load_models()), clients), trials=1)
+    [trial] = report.trials
+    assert trial.passed is True, trial.failed_checks
+    assert trial.attempts == 1  # the workflow's own checks (incl. coverage) passed first time
+    assert trial.checker_extra == {"echoed_payloads": True}
+    assert report.workflow == "brief+repair+quote-style+coverage+flag"
