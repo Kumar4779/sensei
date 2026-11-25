@@ -1,0 +1,76 @@
+{
+  "task": {
+    "id": "morning-brief-001",
+    "version": 1,
+    "category": "morning brief",
+    "sensitivity": "LOCAL_ONLY"
+  },
+  "workflow": "brief+repair+assembled-inbox",
+  "settings": {
+    "local_private.think": false
+  },
+  "budget": {
+    "max_cost_usd": 0.0,
+    "max_retries": 1
+  },
+  "models": [
+    "qwen3:8b"
+  ],
+  "routes": [
+    "local_private"
+  ],
+  "started_at": "2026-11-25T04:16:12.104840+00:00",
+  "finished_at": "2026-11-25T04:17:45.955230+00:00",
+  "aggregates": {
+    "k": 3,
+    "passes": 3,
+    "pass^1": 1.0,
+    "pass@3": 1.0,
+    "pass^3": 1.0,
+    "mean_est_cost_usd": 0.0,
+    "latency_ms_p50": 31198.0,
+    "latency_ms_p95": 32437.600000000002,
+    "cost_basis": "estimated"
+  },
+  "trials": [
+    {
+      "trial": 1,
+      "passed": true,
+      "latency_ms": 32437.600000000002,
+      "est_cost_usd": 0.0,
+      "failed_checks": [],
+      "route": "local_private",
+      "model": "qwen3:8b",
+      "error": null,
+      "attempts": 2,
+      "checker_extra": {},
+      "artifact": null
+    },
+    {
+      "trial": 2,
+      "passed": true,
+      "latency_ms": 29905.3,
+      "est_cost_usd": 0.0,
+      "failed_checks": [],
+      "route": "local_private",
+      "model": "qwen3:8b",
+      "error": null,
+      "attempts": 2,
+      "checker_extra": {},
+      "artifact": null
+    },
+    {
+      "trial": 3,
+      "passed": true,
+      "latency_ms": 31198.0,
+      "est_cost_usd": 0.0,
+      "failed_checks": [],
+      "route": "local_private",
+      "model": "qwen3:8b",
+      "error": null,
+      "attempts": 2,
+      "checker_extra": {},
+      "artifact": null
+    }
+  ]
+}

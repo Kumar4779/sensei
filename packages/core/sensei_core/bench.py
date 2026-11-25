@@ -139,6 +139,7 @@ def run_brief_trial(
             max_cost_usd=task.max_cost_usd,
             max_retries=task.max_retries,
             repair=repair,
+            assemble_inbox=True,
         )
     except (BudgetExceeded, VerificationFailed) as e:
         cost = getattr(e, "total_est_cost_usd", getattr(e, "accumulated_cost_usd", 0.0))
@@ -162,7 +163,7 @@ def run_brief_trial(
     )
 
 
-run_brief_trial.workflow_name = "brief+repair+quote-style+coverage+flag+quoted"  # type: ignore[attr-defined]
+run_brief_trial.workflow_name = "brief+repair+assembled-inbox"  # type: ignore[attr-defined]
 
 Workflow = Callable[[BenchTask, Path, Executor, int], TrialOutcome]
 # Keys are "<task id>" (any version) or "<task id>@v<version>" (that version only;

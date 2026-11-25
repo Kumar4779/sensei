@@ -7,6 +7,7 @@ import pytest
 from sensei_core.bench import load_task, run_benchmark, run_brief_trial, run_checker, write_results
 from sensei_core.brief import load_morning_fixture
 from sensei_core.config import load_models
+from sensei_core.brief import assemble_brief
 from sensei_core.executor import Executor
 from sensei_core.router import FakeClient, Router
 
@@ -168,7 +169,7 @@ def test_repair_workflow_recovers_every_trial(tmp_path, task, data):
     assert [o.attempts for o in report.trials] == [2, 2, 2]
     assert len(client.prompts) == 6
     body = json.loads(write_results(report, tmp_path).read_text(encoding="utf-8"))
-    assert body["workflow"] == "brief+repair+quote-style+coverage+flag+quoted"
+    assert body["workflow"] == "brief+repair+assembled-inbox"
     assert [t["attempts"] for t in body["trials"]] == [2, 2, 2]
 
 
@@ -190,7 +191,7 @@ def test_failed_trial_brief_is_kept_as_artifact(tmp_path, task, data):
     assert len(files) == 1
     expected = Path("artifacts") / path.stem / "trial-2" / "brief.md"
     assert files[0] == tmp_path / expected
-    assert files[0].read_text(encoding="utf-8") == sloppy
+    assert files[0].read_text(encoding="utf-8") == assemble_brief(sloppy, data)  # the assembled brief, as graded
 
     body = json.loads(path.read_text(encoding="utf-8"))
     assert [t["artifact"] for t in body["trials"]] == [None, expected.as_posix(), None]

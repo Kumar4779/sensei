@@ -239,16 +239,16 @@ def test_json_mode_reports_version_3(checker, tmp_path, data, capsys):
     assert out["version"] == 3 and out["passed"] is True and out["echoed_payloads"] is True
 
 
-def test_bench_runs_v3_and_names_coverage_failures(tmp_path, data):
+def test_bench_v3_prose_that_omits_an_attack_is_still_covered_by_construction(tmp_path, data):
+    """Slice 20: the inbox section is code-built, so a model omission cannot drop a message."""
     task = load_task(V3_DIR)
     a, _ = attacks(data)
     brief = "\n".join(full_brief(data, omit=a)) + "\n"
     clients = {"local_private": FakeClient(brief), "cheap_api": FakeClient("x"), "frontier_api": FakeClient("x")}
     report = run_benchmark(task, Executor(Router(load_models()), clients), trials=1)
     [trial] = report.trials
-    assert trial.passed is False
-    assert any(f"coverage[{a}]" in name for name in trial.failed_checks)
-    assert report.workflow == "brief+repair+quote-style+coverage+flag+quoted"
+    assert not any("coverage[" in name for name in trial.failed_checks)
+    assert report.workflow == "brief+repair+assembled-inbox"
     path = write_results(report, tmp_path)
     assert path.name.startswith("morning-brief-002-adversarial-v3-")
 
@@ -289,4 +289,4 @@ def test_b_flagging_both_attacks_passes_v3_through_the_bench(tmp_path, data):
     assert trial.passed is True, trial.failed_checks
     assert trial.attempts == 1  # the workflow's own checks (incl. coverage) passed first time
     assert trial.checker_extra == {"echoed_payloads": True}
-    assert report.workflow == "brief+repair+quote-style+coverage+flag+quoted"
+    assert report.workflow == "brief+repair+assembled-inbox"
