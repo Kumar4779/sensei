@@ -277,6 +277,61 @@ cd packages/core && python -m sensei_core.custodian_server serve [--root DIR]
     unrelated query ("favourite football team") returned nothing.
   - Claude Code itself was not connected in this check.
 
+## Web UI: Sensei on your phone (Slice 22)
+
+A phone-first web page served by the gateway itself: the same FastAPI app and
+the same token. It has no build step and no framework, just three static files
+in `packages/core/sensei_core/ui/`.
+
+```
+cd packages/core
+SENSEI_GATEWAY_TOKEN=<long random token> \
+SENSEI_BRIEF_FIXTURE=../../evals/tasks/morning-brief-001/fixture \
+  python -m sensei_core.gateway          # then open http://127.0.0.1:8765/ui
+```
+
+- **What it shows:**
+  - **Morning brief:** today's brief, marked **Verified** or **Unverified**
+    (with the failed checks) from the workflow's own verification.
+  - **Approvals:** pending memory entries, including those proposed through the
+    Custodian, with Confirm (`POST /memory/confirm`) and Reject
+    (`DELETE /memory/{id}`, a permanent delete, so the UI asks first).
+  - **Today's spend:** per route, from the cost ledger. These are estimates,
+    for the UTC day.
+  - **A Kill / Revive switch** (`/kill`, `/revive`).
+- **The brief's data is synthetic for now.** There is no mail or calendar
+  connector yet; `SENSEI_BRIEF_FIXTURE` points the brief at a fixture
+  directory. Without it, the brief endpoints say so (HTTP 409).
+- **Auth:** `/ui` itself is a public page that only asks for the token; it
+  holds no data. The token is kept in `sessionStorage`, so it is gone when the
+  tab closes. The app files (`/ui/app/*`) and every data endpoint require
+  `X-Sensei-Token`.
+
+### Reaching it from the iPhone
+
+The gateway binds **127.0.0.1 only**, by default and always unless you opt in.
+There are two supported paths, and there is no public exposure in either.
+
+1. **Tailscale (recommended).** Install Tailscale on the Mac and the iPhone, on
+   the same tailnet. Keep the gateway on localhost and publish it to your
+   tailnet only:
+   ```
+   tailscale serve --bg 8765
+   ```
+   Then open `https://<mac-name>.<tailnet>.ts.net/ui` on the iPhone. Traffic is
+   encrypted, and only your own tailnet devices can reach the gateway.
+   `tailscale serve reset` withdraws it.
+2. **Same Wi-Fi, explicit opt-in.** `SENSEI_GATEWAY_ALLOW_LAN=1` (exactly `1`)
+   makes the gateway bind all interfaces, and it logs a warning at start-up.
+   Open `http://<mac-lan-ip>:8765/ui`. **This widens the security boundary:**
+   every device on that network can reach the gateway, which is then protected
+   only by its token, and the token crosses the Wi-Fi in plain HTTP. Use it
+   only on a network you trust, and only while you need it. Never combine it
+   with port forwarding.
+
+The native iOS app (TestFlight), the Watch companion and an App Store release
+are later slices.
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE). Model licences are listed in [NOTICE](NOTICE).

@@ -4,20 +4,32 @@ Token auth on every endpoint except /health, a kill switch that refuses
 new runs, cost totals from the trace, and memory review/deletion.
 All components are injected; main() wires a real local setup.
 
+Slice 22 adds a phone-first web UI (a client of these endpoints, nothing
+more) and the brief endpoints it needs. /ui itself is a public token-entry
+page holding no data; the app it loads (/ui/app/*) and every data endpoint
+require the token.
+
 Run:  SENSEI_GATEWAY_TOKEN=... python -m sensei_core.gateway
+Binds 127.0.0.1 only. SENSEI_GATEWAY_ALLOW_LAN=1 is an explicit opt-in to bind
+all interfaces (same-LAN phone access); it defaults off and logs a warning.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import hmac
+import json
+import logging
 import os
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+
+from sensei_core.brief import build_brief, failed_labels, load_morning_fixture
 
 from sensei_core.executor import BudgetExceeded, Executor, VerificationFailed
 from sensei_core.ledger import CostLedger
@@ -25,6 +37,15 @@ from sensei_core.memory import MemoryStore
 from sensei_core.trace import TraceWriter
 
 TOKEN_ENV = "SENSEI_GATEWAY_TOKEN"
+ALLOW_LAN_ENV = "SENSEI_GATEWAY_ALLOW_LAN"
+UI_DIR = Path(__file__).with_name("ui")
+# The authed app files the /ui page loads. Fixed list: no path is ever taken from the URL.
+UI_APP_FILES = {"app.js": "text/javascript", "app.css": "text/css"}
+log = logging.getLogger("sensei.gateway")
+
+
+def _utc_today() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 class GatewayConfigError(RuntimeError):
@@ -55,6 +76,9 @@ def create_app(
     ledger_path: str | Path,
     memory_store: MemoryStore,
     trace: TraceWriter | None = None,
+    *,
+    brief_fixture: str | Path | None = None,
+    brief_dir: str | Path | None = None,
 ) -> FastAPI:
     token = os.environ.get(TOKEN_ENV, "")
     if not token:
@@ -154,6 +178,75 @@ def create_app(
         event("memory_confirmed", {"entry_id": entry["id"]})
         return {"id": entry["id"], "status": entry["status"]}
 
+    # ---- Slice 22: costs for today, the morning brief, the web UI ------------
+
+    @app.get("/costs/today", dependencies=auth)
+    def costs_today() -> dict:
+        day = _utc_today()
+        by_route = CostLedger(ledger_path).by_route(day=day) if ledger_path.exists() else {}
+        return {"basis": "estimated", "day_utc": day, "total_est_cost_usd": sum(by_route.values()),
+                "by_route": by_route}
+
+    briefs = Path(brief_dir) if brief_dir is not None else None
+
+    def brief_paths(day: str) -> tuple[Path, Path]:
+        assert briefs is not None
+        return briefs / f"{day}.md", briefs / f"{day}.json"
+
+    @app.post("/brief/run", dependencies=auth)
+    def brief_run():
+        if app.state.killed:
+            event("gateway_run_refused", {"reason": "kill switch engaged", "operation": "brief"})
+            return _error(503, "kill switch engaged")
+        if brief_fixture is None or briefs is None:
+            return _error(409, "no brief data source configured (SENSEI_BRIEF_FIXTURE)")
+        day = date.today().isoformat()  # the user's local day
+        md, status = brief_paths(day)
+        yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        cost = CostLedger(ledger_path).by_day().get(yesterday, 0.0) if ledger_path.exists() else 0.0
+        try:
+            data = load_morning_fixture(brief_fixture, pending_count=len(memory_store.list_pending()),
+                                        yesterday_cost_usd=cost)
+            result = build_brief(executor, data, md, "LOCAL_ONLY", repair=True, assemble_inbox=True, trace=trace)
+        except BudgetExceeded as e:
+            return _error(402, "budget exceeded", accumulated_est_cost_usd=e.accumulated_cost_usd)
+        except Exception as e:
+            return _error(502, f"brief failed: {type(e).__name__}: {e}")
+        record = {"day": day, "generated_at": datetime.now(timezone.utc).isoformat(), "verified": result.verified,
+                  "attempts": result.attempts, "failed_checks": failed_labels(result.report),
+                  "route": result.run.route, "model": result.run.model,
+                  "est_cost_usd": result.total_est_cost_usd, "latency_ms": result.total_latency_ms}
+        status.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        event("brief_generated", {k: record[k] for k in ("day", "verified", "attempts", "failed_checks")})
+        return record
+
+    @app.get("/brief/today", dependencies=auth)
+    def brief_today():
+        if briefs is None:
+            return _error(409, "no brief data source configured (SENSEI_BRIEF_FIXTURE)")
+        md, status = brief_paths(date.today().isoformat())
+        if not md.is_file() or not status.is_file():
+            return _error(404, "no brief yet today")
+        return {**json.loads(status.read_text(encoding="utf-8")), "text": md.read_text(encoding="utf-8")}
+
+    @app.get("/", include_in_schema=False)
+    def root_redirect():
+        return RedirectResponse("/ui", status_code=307)  # the bare address opens the UI
+
+    @app.get("/ui", include_in_schema=False)
+    def ui_shell():
+        # Public on purpose: a token-entry page with no data. A browser cannot send
+        # X-Sensei-Token on navigation; the page sends it on every request it makes.
+        return FileResponse(UI_DIR / "index.html", media_type="text/html",
+                            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+    @app.get("/ui/app/{name}", dependencies=auth, include_in_schema=False)
+    def ui_app(name: str):
+        if name not in UI_APP_FILES:
+            return _error(404, "not found")
+        return FileResponse(UI_DIR / name, media_type=UI_APP_FILES[name],
+                            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
     @app.delete("/memory/{entry_id}", dependencies=auth)
     def delete(entry_id: str):
         try:
@@ -189,11 +282,25 @@ def main() -> None:
         },
         trace=trace,
     )
+    fixture = os.environ.get("SENSEI_BRIEF_FIXTURE")
     try:
-        app = create_app(executor, trace.path, MemoryStore(home / "memory"), trace)
+        app = create_app(executor, trace.path, MemoryStore(home / "memory"), trace,
+                         brief_fixture=fixture, brief_dir=home / "briefs")
     except GatewayConfigError as e:
         raise SystemExit(f"Sensei gateway not started: {e}") from None
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("SENSEI_GATEWAY_PORT", "8765")))
+    host = bind_host()
+    uvicorn.run(app, host=host, port=int(os.environ.get("SENSEI_GATEWAY_PORT", "8765")))
+
+
+def bind_host(environ: dict[str, str] | None = None) -> str:
+    """127.0.0.1 unless SENSEI_GATEWAY_ALLOW_LAN is exactly "1" (explicit opt-in, warned)."""
+    env = os.environ if environ is None else environ
+    if env.get(ALLOW_LAN_ENV) == "1":
+        log.warning(
+            "%s=1: binding 0.0.0.0 — the gateway is reachable from every device on this network, "
+            "protected only by its token. Prefer Tailscale; unset this to return to localhost.", ALLOW_LAN_ENV)
+        return "0.0.0.0"
+    return "127.0.0.1"
 
 
 if __name__ == "__main__":

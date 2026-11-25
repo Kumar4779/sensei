@@ -13,6 +13,10 @@ from pathlib import Path
 from sensei_core.trace import read_events
 
 
+def _utc_day(event: dict) -> str:
+    return datetime.fromisoformat(event["timestamp"]).astimezone(timezone.utc).date().isoformat()
+
+
 class CostLedger:
     def __init__(self, trace_path: str | Path) -> None:
         self._calls = [
@@ -26,9 +30,12 @@ class CostLedger:
     def total_est_cost_usd(self) -> float:
         return sum(e["payload"]["est_cost_usd"] for e in self._calls)
 
-    def by_route(self) -> dict[str, float]:
+    def by_route(self, day: str | None = None) -> dict[str, float]:
+        """Totals by route; with day ('YYYY-MM-DD', UTC), only that day's calls."""
         totals: dict[str, float] = defaultdict(float)
         for e in self._calls:
+            if day is not None and _utc_day(e) != day:
+                continue
             totals[e["payload"].get("route", "unknown")] += e["payload"]["est_cost_usd"]
         return dict(sorted(totals.items()))
 
@@ -36,6 +43,5 @@ class CostLedger:
         """Totals keyed by UTC date, 'YYYY-MM-DD'."""
         totals: dict[str, float] = defaultdict(float)
         for e in self._calls:
-            day = datetime.fromisoformat(e["timestamp"]).astimezone(timezone.utc).date().isoformat()
-            totals[day] += e["payload"]["est_cost_usd"]
+            totals[_utc_day(e)] += e["payload"]["est_cost_usd"]
         return dict(sorted(totals.items()))
