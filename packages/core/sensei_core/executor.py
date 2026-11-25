@@ -12,7 +12,8 @@ import math
 import time
 from dataclasses import dataclass
 
-from sensei_core.router import ModelClient, RouteDecision, RouteRequest, Router
+from sensei_core.egress import API_TIERS, EgressLog, destination_host
+from sensei_core.router import ModelClient, RouteDecision, RouteRequest, Router, RoutingError
 from sensei_core.trace import TraceWriter
 from sensei_core.verifier import Check, VerificationReport, Verifier
 
@@ -73,10 +74,12 @@ class Executor:
         router: Router,
         clients: dict[str, ModelClient],
         trace: TraceWriter | None = None,
+        egress: EgressLog | None = None,
     ) -> None:
         self._router = router
         self._clients = dict(clients)
         self._trace = trace
+        self._egress = egress  # Slice 23: API-route calls are logged here (sizes + digest, never content)
 
     def _event(self, event_type: str, payload: dict) -> None:
         if self._trace is not None:
@@ -124,6 +127,10 @@ class Executor:
                     raise
                 except Exception as error:
                     failures += 1
+                    self._event(
+                        "route_failure",
+                        {"route": decision.route, "model": decision.model, "error_class": type(error).__name__},
+                    )
                     if failures > max_retries:
                         raise
                     if sensitivity_class == "LOCAL_ONLY":
@@ -133,6 +140,13 @@ class Executor:
                         retry = self._router.decide(
                             RouteRequest(sensitivity_class, difficulty, prior_failures=failures)
                         )
+                        # No silent fallback (Slice 23): after a failure the only legal next
+                        # route is the same one or the Router's escalation target. Never the
+                        # local route, never another provider.
+                        if retry.route not in (decision.route, "frontier_api"):
+                            raise RoutingError(
+                                f"refusing fallback from {decision.route!r} to {retry.route!r} after a failure"
+                            ) from error
                     self._event(
                         "run_escalated" if retry.route != decision.route else "run_retried",
                         {"from_route": decision.route, "to_route": retry.route, "attempt": failures, "error": str(error)},
@@ -196,11 +210,22 @@ class Executor:
             if spent + next_cost > limit:
                 raise BudgetExceeded(spent, limit, next_cost)
 
+        route = self._router.route(decision.route)
+        egress = self._egress if route.tier in API_TIERS else None
         start = time.perf_counter()
-        response = client.complete(prompt)
+        try:
+            response = client.complete(prompt)
+            if not isinstance(response, str):
+                raise TypeError(f"client for route {decision.route!r} returned {type(response).__name__}, not str")
+        except Exception as error:
+            if egress is not None:
+                egress.record(route=decision.route, model=decision.model, host=destination_host(client, route.provider),
+                              prompt=prompt, response=None, error_class=type(error).__name__)
+            raise
         latency_ms = round((time.perf_counter() - start) * 1000, 1)
-        if not isinstance(response, str):
-            raise TypeError(f"client for route {decision.route!r} returned {type(response).__name__}, not str")
+        if egress is not None:
+            egress.record(route=decision.route, model=decision.model, host=destination_host(client, route.provider),
+                          prompt=prompt, response=response)
 
         tokens_out = estimate_tokens(len(response))
         cost = estimate_cost(tokens_in + tokens_out, rate)

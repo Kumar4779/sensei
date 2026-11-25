@@ -69,6 +69,7 @@ def test_cheap_failure_escalates_to_frontier(trace):
     assert event_types(trace) == [
         "run_started",
         "route_decision",
+        "route_failure",  # Slice 23
         "route_decision",
         "run_escalated",
         "model_call",

@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from sensei_core.brief import build_brief, failed_labels, load_morning_fixture
+from sensei_core.egress import EgressLog
 
 from sensei_core.executor import BudgetExceeded, Executor, VerificationFailed
 from sensei_core.ledger import CostLedger
@@ -79,6 +80,7 @@ def create_app(
     *,
     brief_fixture: str | Path | None = None,
     brief_dir: str | Path | None = None,
+    egress_path: str | Path | None = None,
 ) -> FastAPI:
     token = os.environ.get(TOKEN_ENV, "")
     if not token:
@@ -148,16 +150,25 @@ def create_app(
         event("kill_switch_disengaged", {})
         return {"killed": False}
 
+    def egress_today() -> dict:
+        # Slice 23: today's API egress per destination (calls, bytes); never content.
+        day = _utc_today()
+        if egress_path is None:
+            return {"day_utc": day, "by_destination": {}}
+        return EgressLog(egress_path).summary(day)
+
     @app.get("/costs", dependencies=auth)
     def costs() -> dict:
         if not ledger_path.exists():
-            return {"basis": "estimated", "total_est_cost_usd": 0.0, "by_route": {}, "by_day": {}}
+            return {"basis": "estimated", "total_est_cost_usd": 0.0, "by_route": {}, "by_day": {},
+                    "egress": egress_today()}
         ledger = CostLedger(ledger_path)
         return {
             "basis": "estimated",
             "total_est_cost_usd": ledger.total_est_cost_usd,
             "by_route": ledger.by_route(),
             "by_day": ledger.by_day(),
+            "egress": egress_today(),
         }
 
     @app.get("/memory/beliefs", dependencies=auth)
@@ -273,6 +284,7 @@ def main() -> None:
     routes["local_private"] = dataclasses.replace(routes["local_private"], model=local_model)
 
     trace = TraceWriter(home / "traces" / "gateway.jsonl", run_id="gateway", session_id="local")
+    egress = EgressLog(home / "egress.jsonl")
     executor = Executor(
         Router(routes, trace=trace),
         {
@@ -281,11 +293,12 @@ def main() -> None:
             "frontier_api": FakeClient("fake frontier_api response"),
         },
         trace=trace,
+        egress=egress,
     )
     fixture = os.environ.get("SENSEI_BRIEF_FIXTURE")
     try:
         app = create_app(executor, trace.path, MemoryStore(home / "memory"), trace,
-                         brief_fixture=fixture, brief_dir=home / "briefs")
+                         brief_fixture=fixture, brief_dir=home / "briefs", egress_path=egress.path)
     except GatewayConfigError as e:
         raise SystemExit(f"Sensei gateway not started: {e}") from None
     host = bind_host()

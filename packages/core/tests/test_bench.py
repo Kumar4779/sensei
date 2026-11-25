@@ -34,8 +34,8 @@ class FlakyOnCall(FakeClient):
         return self.sloppy if len(self.prompts) == self.bad_call else self.response
 
 
-def no_repair(task, trial_dir, executor, n):
-    return run_brief_trial(task, trial_dir, executor, n, repair=False)
+def no_repair(inp, executor, n):
+    return run_brief_trial(inp, executor, n, repair=False)
 
 
 @pytest.fixture
@@ -93,12 +93,11 @@ def test_one_bad_trial_in_three(task, data):
 def test_trials_do_not_share_output_dirs(task, data):
     seen = []
 
-    def spy(task_, trial_dir, executor, n):
-        seen.append(trial_dir)
-        assert list(trial_dir.iterdir()) == []
-        from sensei_core.bench import run_brief_trial
+    def spy(inp, executor, n):
+        seen.append(inp.work_dir)
+        assert list(inp.work_dir.iterdir()) == []
 
-        return run_brief_trial(task_, trial_dir, executor, n)
+        return run_brief_trial(inp, executor, n)
 
     executor, _ = executor_with(FakeClient(perfect_brief(data)))
     run_benchmark(task, executor, trials=3, workflow=spy)

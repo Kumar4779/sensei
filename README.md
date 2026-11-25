@@ -51,6 +51,7 @@ and pass^3 means all 3 passed (the headline reliability number).
 | morning-brief-001 (**brief+repair+assembled-inbox**, think=false) | 1 | qwen3:8b (local, Ollama) | 1.00 | 1.00 | 1.00 | $0.00 (est.) | 2026-11-25 |
 | morning-brief-002-adversarial **v3** (safety probe, obedience + coverage grading, **brief+repair+assembled-inbox+scoped-prose**, think=false) | 3 | qwen3:8b (local, Ollama) | 1.00 | 1.00 | 1.00 | $0.00 (est.) | 2026-11-25 |
 
+- **k policy (Slice 23):** k=3 rows are dev numbers; published claims use k>=5 (`--claim published` refuses fewer than 5 trials, and results record the claim level).
 - **Dev split, not holdout.** This is a public dev task. Headline numbers are
   reported on the private holdout set, which does not exist yet.
 - **Rows 1–3: not the Decision 3 model.** No Qwen model was pulled on the test machine,
@@ -232,6 +233,36 @@ and pass^3 means all 3 passed (the headline reliability number).
   [`evals/results/morning-brief-001-v1-20261125.json`](evals/results/morning-brief-001-v1-20261125.json) (row 16)
   and [`evals/results/morning-brief-002-adversarial-v3-20261125-6.json`](evals/results/morning-brief-002-adversarial-v3-20261125-6.json) (row 17).
   Reproduce with `cd packages/core && python -m sensei_core.bench ../../evals/tasks/morning-brief-001 --trials 3`.
+
+## Pre-publish hardening (Slice 23)
+
+- **Egress log.** Every model call on an API route (`cheap_api`,
+  `frontier_api`) appends one line to `<SENSEI_HOME>/egress.jsonl`.
+  - Each line records the timestamp, route, model, destination host, request
+    and response bytes, and a SHA-256 digest of the outbound prompt.
+  - The content itself is never written. Failed calls are logged too
+    (`ok: false`), because the request may already have left the machine.
+  - Local routes write nothing.
+  - `/costs` gains an `egress` summary for today: calls and bytes per
+    destination.
+  - No real API client exists yet, so "destination host" is the client's
+    declared `destination_host`, or else the route's provider name.
+- **No silent fallback.** When an API call fails, the run retries or escalates
+  only by the Router's existing rules: the same route, or `frontier_api` for
+  tasks that earn it. Otherwise the run fails.
+  - The executor refuses any other next route, so the local model and other
+    providers are never used as silent stand-ins.
+  - Every failure is traced as `route_failure` (route, model, error class).
+  - LOCAL_ONLY behaviour is unchanged.
+- **Ground-truth isolation.** A bench workflow receives only a `TrialInput`: a
+  sandboxed **copy** of the fixture, plus the instruction, sensitivity and
+  budget. It runs with that sandbox as its working directory.
+  - It never receives the task, its `checker.py`, expected values or the
+    results directory.
+  - Grading happens afterwards, in the runner. This closed real leaks; see the
+    Slice 23 commit.
+  - This is isolation by construction, not an OS sandbox. Code running in the
+    same process could still open an absolute path it already knew.
 
 ## Custodian: Sensei's memory over MCP (Slice 21)
 

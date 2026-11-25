@@ -205,3 +205,27 @@ def test_bind_host_defaults_to_localhost_and_lan_needs_exact_opt_in(caplog):
     with caplog.at_level("WARNING", logger="sensei.gateway"):
         assert bind_host({ALLOW_LAN_ENV: "1"}) == "0.0.0.0"
     assert any("reachable from every device on this network" in r.getMessage() for r in caplog.records)
+
+
+# ---- Slice 23: /costs carries today's egress summary ------------------------------------
+
+
+def test_costs_reports_todays_egress_per_destination(tmp_path, monkeypatch):
+    from sensei_core.egress import EgressLog
+
+    monkeypatch.setenv(TOKEN_ENV, TOKEN)
+    trace = TraceWriter(tmp_path / "trace.jsonl", run_id="r1", session_id="s1")
+    egress = EgressLog(tmp_path / "home" / "egress.jsonl")
+    clients = {k: FakeClient(f"{k} answer") for k in ("local_private", "cheap_api", "frontier_api")}
+    executor = Executor(Router(load_models(), trace=trace), clients, trace=trace, egress=egress)
+    client = TestClient(create_app(executor, trace.path, MemoryStore(tmp_path / "m"), trace, egress_path=egress.path))
+    today = datetime.now(timezone.utc).date().isoformat()
+    assert client.get("/costs", headers=AUTH).json()["egress"] == {"day_utc": today, "by_destination": {}}
+    client.post("/run", json={"prompt": "summarise this", "sensitivity_class": "API_OK", "difficulty": "simple"}, headers=AUTH)
+    client.post("/run", json={"prompt": "private", "sensitivity_class": "LOCAL_ONLY", "difficulty": "simple"}, headers=AUTH)
+    body = client.get("/costs", headers=AUTH).json()
+    provider = load_models()["cheap_api"].provider
+    assert body["egress"]["by_destination"] == {provider: {
+        "calls": 1, "request_bytes": len(b"summarise this"), "response_bytes": len(b"cheap_api answer"),
+        "total_bytes": len(b"summarise this") + len(b"cheap_api answer")}}
+    assert "summarise" not in egress.path.read_text(encoding="utf-8")
