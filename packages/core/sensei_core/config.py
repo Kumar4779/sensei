@@ -18,6 +18,15 @@ class ConfigError(ValueError):
     """Raised when a routing table is malformed."""
 
 
+def _read_manifest(path: str | Path) -> dict[str, Any]:
+    """Parse a TOML manifest, refusing one that changed after this process pinned it (Slice 24)."""
+    from sensei_core.manifests import check_unchanged
+
+    data = Path(path).read_bytes()
+    check_unchanged(path, data)
+    return tomllib.loads(data.decode("utf-8"))
+
+
 @dataclass(frozen=True)
 class Route:
     name: str
@@ -83,8 +92,7 @@ def _parse_route(name: str, raw: Any) -> Route:
 
 def load_models(path: str | Path = DEFAULT_MODELS_PATH) -> dict[str, Route]:
     """Load and validate a routing table; raise ConfigError if invalid."""
-    with Path(path).open("rb") as f:
-        data = tomllib.load(f)
+    data = _read_manifest(path)
     routes = data.get("routes")
     if not isinstance(routes, dict) or not routes:
         raise ConfigError("models file must define at least one [routes.<name>] table")
@@ -103,8 +111,7 @@ class EmbeddingsConfig:
 
 def load_embeddings(path: str | Path = DEFAULT_MODELS_PATH) -> EmbeddingsConfig:
     """Load and validate the [embeddings] table; raise ConfigError if missing or invalid."""
-    with Path(path).open("rb") as f:
-        raw = tomllib.load(f).get("embeddings")
+    raw = _read_manifest(path).get("embeddings")
     if not isinstance(raw, dict):
         raise ConfigError("models file must define an [embeddings] table")
     for key in ("provider", "model", "search_min_score", "dedup_threshold"):

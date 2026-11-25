@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 
 from sensei_core.egress import API_TIERS, EgressLog, destination_host
+from sensei_core.manifests import ManifestGuard, ManifestTamperError
 from sensei_core.router import ModelClient, RouteDecision, RouteRequest, Router, RoutingError
 from sensei_core.trace import TraceWriter
 from sensei_core.verifier import Check, VerificationReport, Verifier
@@ -75,11 +76,15 @@ class Executor:
         clients: dict[str, ModelClient],
         trace: TraceWriter | None = None,
         egress: EgressLog | None = None,
+        manifests: ManifestGuard | None = None,
     ) -> None:
         self._router = router
         self._clients = dict(clients)
         self._trace = trace
         self._egress = egress  # Slice 23: API-route calls are logged here (sizes + digest, never content)
+        # Slice 24: guardrail manifests pinned at construction (default: the shipped
+        # tools.toml and models.toml), re-verified before every run.
+        self.manifests = manifests if manifests is not None else ManifestGuard(trace=trace)
 
     def _event(self, event_type: str, payload: dict) -> None:
         if self._trace is not None:
@@ -101,6 +106,7 @@ class Executor:
             raise ValueError("max_retries must be a non-negative int")
         if checks is not None and not checks:
             raise ValueError("checks must be None or a non-empty list")
+        self.manifests.verify()  # Slice 24: a changed guardrail manifest refuses the run
         # LOCAL_ONLY runs are exempt from the cost budget (local cost is 0.0).
         limit = None if sensitivity_class == "LOCAL_ONLY" else max_cost_usd
 
@@ -123,7 +129,7 @@ class Executor:
                     result, cost = self._call(prompt, decision, spent, limit, escalated=decision.route != first.route)
                     spent += cost
                     break
-                except (NoClientConfigured, BudgetExceeded):
+                except (NoClientConfigured, BudgetExceeded, ManifestTamperError):
                     raise
                 except Exception as error:
                     failures += 1

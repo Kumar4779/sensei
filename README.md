@@ -264,6 +264,27 @@ and pass^3 means all 3 passed (the headline reliability number).
   - This is isolation by construction, not an OS sandbox. Code running in the
     same process could still open an absolute path it already knew.
 
+## Manifest integrity (Slice 24)
+
+The agent cannot rewrite its own rules. `tools.toml` (the permission gate) and
+`models.toml` (the router) are pinned by SHA-256 when the executor is built.
+The gateway's startup goes through that, and the digests (never the contents)
+are traced as `manifests_loaded`.
+
+- **Before every run,** both files are re-read and re-checked.
+  - If either has changed or been deleted, the run is refused and traced as
+    `manifest_tamper_detected`, naming the file.
+  - The gateway answers HTTP 500 with `"error": "manifest_tamper_detected"`,
+    and refuses to start on a mismatch.
+  - The bench and the CLI raise `ManifestTamperError` rather than record a
+    failed trial.
+- **There is no reload path.** Pins are process-wide: the manifest loaders,
+  and any new guard, refuse a pinned file whose bytes changed. To adopt an
+  intended edit, restart.
+- **Loose permissions get a warning, not a refusal (v1).** A group- or
+  world-writable manifest is traced as `manifest_permissions_loose` at
+  startup. The shipped files are `644`.
+
 ## Custodian: Sensei's memory over MCP (Slice 21)
 
 Sensei's memory store, shared with any MCP client (Claude Code included), with

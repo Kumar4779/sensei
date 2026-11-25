@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from sensei_core.brief import build_brief, failed_labels, load_morning_fixture
 from sensei_core.egress import EgressLog
+from sensei_core.manifests import ManifestTamperError
 
 from sensei_core.executor import BudgetExceeded, Executor, VerificationFailed
 from sensei_core.ledger import CostLedger
@@ -87,6 +88,13 @@ def create_app(
         # Fail closed: never serve without auth.
         raise GatewayConfigError(f"{TOKEN_ENV} is not set; refusing to start the gateway without auth")
 
+    # Slice 24: the executor pinned the guardrail manifests when it was built;
+    # refuse to start if they changed since.
+    try:
+        executor.manifests.verify()
+    except ManifestTamperError as e:
+        raise GatewayConfigError(str(e)) from None
+
     app = FastAPI(title="Sensei Gateway", docs_url=None, redoc_url=None, openapi_url=None)
     # Kill switch is in-memory app state (v1). Known limit: a restart clears it,
     # and it refuses new runs but does not interrupt a run already in flight.
@@ -103,6 +111,11 @@ def create_app(
             event("gateway_auth_failed", {"path": request.url.path, "token_present": x_sensei_token is not None})
             raise _Unauthorized()
 
+    @app.exception_handler(ManifestTamperError)
+    def manifest_tamper(_request: Request, exc: ManifestTamperError) -> JSONResponse:
+        # Distinct from run failures (502): the guardrails themselves changed.
+        return _error(500, "manifest_tamper_detected", changed=exc.changed)
+
     @app.exception_handler(_Unauthorized)
     def unauthorized(_request: Request, _exc: _Unauthorized) -> JSONResponse:
         return _error(401, "unauthorized: missing or invalid X-Sensei-Token")
@@ -118,6 +131,7 @@ def create_app(
         if app.state.killed:
             event("gateway_run_refused", {"reason": "kill switch engaged"})
             return _error(503, "kill switch engaged")
+        executor.manifests.verify()  # Slice 24: raises ManifestTamperError -> 500
         try:
             result = executor.run_once(
                 body.prompt, body.sensitivity_class, body.difficulty, max_cost_usd=body.max_cost_usd
@@ -134,6 +148,8 @@ def create_app(
             return _error(
                 422, "verification failed", report=e.report.to_dict(), total_est_cost_usd=e.total_est_cost_usd
             )
+        except ManifestTamperError:
+            raise
         except Exception as e:
             return _error(502, f"run failed: {type(e).__name__}: {e}")
         return dataclasses.asdict(result)
@@ -211,6 +227,7 @@ def create_app(
             return _error(503, "kill switch engaged")
         if brief_fixture is None or briefs is None:
             return _error(409, "no brief data source configured (SENSEI_BRIEF_FIXTURE)")
+        executor.manifests.verify()  # Slice 24
         day = date.today().isoformat()  # the user's local day
         md, status = brief_paths(day)
         yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
@@ -221,6 +238,8 @@ def create_app(
             result = build_brief(executor, data, md, "LOCAL_ONLY", repair=True, assemble_inbox=True, trace=trace)
         except BudgetExceeded as e:
             return _error(402, "budget exceeded", accumulated_est_cost_usd=e.accumulated_cost_usd)
+        except ManifestTamperError:
+            raise
         except Exception as e:
             return _error(502, f"brief failed: {type(e).__name__}: {e}")
         record = {"day": day, "generated_at": datetime.now(timezone.utc).isoformat(), "verified": result.verified,

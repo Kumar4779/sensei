@@ -85,8 +85,11 @@ def _parse_tool(name: str, raw: Any) -> ToolSpec:
 
 def load_tools(path: str | Path = DEFAULT_TOOLS_PATH) -> dict[str, ToolSpec]:
     """Load and validate a tool manifest; raise ConfigError if invalid."""
-    with Path(path).open("rb") as f:
-        data = tomllib.load(f)
+    from sensei_core.manifests import check_unchanged
+
+    raw_bytes = Path(path).read_bytes()
+    check_unchanged(path, raw_bytes)  # Slice 24: never reparse a manifest changed since startup
+    data = tomllib.loads(raw_bytes.decode("utf-8"))
     tools = data.get("tools")
     if not isinstance(tools, dict) or not tools:
         raise ConfigError("tool manifest must define at least one [tools.<name>] table")

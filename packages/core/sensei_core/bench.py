@@ -31,6 +31,7 @@ from typing import Any, Callable
 
 from sensei_core.brief import build_brief, load_morning_fixture
 from sensei_core.executor import BudgetExceeded, Executor, VerificationFailed
+from sensei_core.manifests import ManifestTamperError
 
 
 class BenchError(RuntimeError):
@@ -197,6 +198,8 @@ def run_brief_trial(inp: TrialInput, executor: Executor, trial: int = 1, repair:
     except (BudgetExceeded, VerificationFailed) as e:
         cost = getattr(e, "total_est_cost_usd", getattr(e, "accumulated_cost_usd", 0.0))
         return WorkflowResult(None, None, cost, error=f"{type(e).__name__}: {e}")
+    except ManifestTamperError:
+        raise  # Slice 24: a tampered guardrail stops the bench; it is not a failed trial
     except Exception as e:
         return WorkflowResult(None, error=f"{type(e).__name__}: {e}")
     return WorkflowResult(out, result.total_latency_ms, result.total_est_cost_usd, route=result.run.route,
