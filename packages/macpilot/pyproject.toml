@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "macpilot"
+version = "0.1.0"
+description = "MacPilot: Sensei's hands — verified computer use, starting with the browser"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.48",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+]
+
+[tool.setuptools]
+packages = ["macpilot"]
+
+[tool.setuptools.package-data]
+macpilot = ["fixtures/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

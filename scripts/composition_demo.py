@@ -100,7 +100,14 @@ def format_summary(claims: list[Claim]) -> str:
 
 def macpilot_capability(root: Path = MACPILOT) -> dict[str, Any]:
     """What packages/macpilot can actually do today, from its files."""
-    files = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+    # The package's own files only: never its virtualenv, caches or build output.
+    skip = {"__pycache__", "build", "dist", "node_modules"}
+    files = sorted(
+        str(p.relative_to(root)) for p in root.rglob("*")
+        if p.is_file()
+        and not any(part.startswith(".") or part in skip or part.endswith(".egg-info")
+                    for part in p.relative_to(root).parts[:-1])
+    )
     code = [f for f in files if f.endswith((".py", ".swift", ".js", ".ts"))]
     return {"files": files, "code_files": code, "runnable": bool(code)}
 

@@ -34,7 +34,9 @@ def test_a_claim_without_evidence_is_reported_not_done():
 
 def test_macpilot_inspection_reports_what_exists(tmp_path):
     real = demo.macpilot_capability()
-    assert real["runnable"] is False and real["code_files"] == [] and "README.md" in real["files"]
+    # MacPilot Slice 1 added code; its virtualenv and caches are not counted as MacPilot's code.
+    assert real["runnable"] is True and "macpilot/actor.py" in real["code_files"] and "README.md" in real["files"]
+    assert not any(f.startswith((".venv", "build")) or "__pycache__" in f or ".egg-info" in f for f in real["files"])
     (tmp_path / "pilot.py").write_text("print('hi')\n")
     assert demo.macpilot_capability(tmp_path)["runnable"] is True
 
