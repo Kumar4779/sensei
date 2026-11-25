@@ -1,8 +1,8 @@
 # Slice 22 — Surfaces v1: web UI over the gateway (phone-first)
 
 ## Why
-Requirement (2026-11-24): Sensei must be a product — graphical,
-usable on iPhone and Apple Watch, eventually App Store-published.
+Requirement (2026-11-24): Sensei must be a product — graphical, usable on
+iPhone and Apple Watch, eventually App Store-published.
 Honest ladder: (1) web UI over the existing gateway — works on iPhone the
 day it ships, no Apple review; (2) thin native iOS client via TestFlight
 (December); (3) App Store after the product hardens. Watch v1 scope is

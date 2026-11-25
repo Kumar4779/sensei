@@ -1,28 +1,27 @@
 # Sensei — Design Document
 
-**Status:** Design Phase
+**Status:** Design complete; implementation in progress (see the README and CHANGELOG).
 
 ## 1. Product Definition
 
 ### Vision
 
-Sensei is a daily-life personal agent in the class of Meta's Muse, built entirely on open-weight models and released as open source under Apache 2.0.
+Sensei is a daily-life personal agent, built entirely on open-weight models and released as open source under Apache 2.0. Its feature-parity target is the closed consumer agents now shipping, Meta's Muse among them.
 
 What sets it apart is designed in as product features rather than layered on afterwards:
 
 - **The Sensei personality.** A disciplined teacher-mentor. Sensei helps you get things done and helps you get better at them. It is direct, patient and holds high standards.
-- Cultural fluency (features, not stereotypes): Centre of gravity —
-  East and Southeast Asia: Japanese, Chinese, Taiwan, Singapore,
-  Malaysia. Its manner: polite, humble and
-  comfortable — polished and aspirational on the surface, warm and
-  unpretentious underneath. Plus a San Francisco + New York cosmopolitan
-  layer, so people from diverse backgrounds find the agent likeable and
-  can follow it easily: plain, clear language first, cultural depth
-  underneath. Code-switching follows the centre: Mandarin (incl. Taiwan
-  usage), Japanese, and the Singapore/Malaysia mix. Festival fluency
-  centres on Lunar New Year and the East/SE Asian calendar, including
-  Singapore/Malaysia's multicultural calendar and Ramadan-aware
-  scheduling.
+- **Cultural fluency, as features rather than stereotypes.** Sensei's
+  centre of gravity is East and Southeast Asia: Japan, China, Taiwan,
+  Singapore and Malaysia. Its manner is polished and aspirational on the
+  surface, and polite, humble and warm underneath. Code-switching follows
+  that centre: Mandarin (including Taiwan usage), Japanese, and the
+  Singapore/Malaysia mix. Its calendar fluency centres on Lunar New Year and
+  the East and Southeast Asian calendar, including Singapore and Malaysia's
+  multicultural calendar and Ramadan-aware scheduling. Over this sits a San
+  Francisco and New York cosmopolitan layer: plain, clear language first, so
+  that people from any background can follow it easily, with the cultural
+  depth underneath.
 - **Open models.** It runs on open-weight models through a pluggable router, so you are not locked in to one vendor or one model.
 
 **The two honest differences from Meta's Muse (by design, stated publicly)**
@@ -38,7 +37,7 @@ What sets it apart is designed in as product features rather than layered on aft
 Morning brief · research-to-doc with sources · verified browser task
 (MacPilot) · inbox/calendar triage (draft-only) · approvals via
 phone/Watch · plus the always-on layer: chat/voice companion with
-memory and proactive nudges (Muse-parity core).
+memory and proactive nudges (the feature-parity core).
 
 #### Out of scope for v1
 
@@ -47,9 +46,8 @@ others' accounts, iOS-side computer control, training models.
 
 #### Success for v1
 
-The author uses Sensei as their daily personal agent for 2 straight weeks
-(brief, triage, nudges, approvals) with published SenseiBench numbers.
-
+The author uses Sensei daily for 2 straight weeks (brief, triage,
+nudges, approvals) with published SenseiBench numbers.
 
 ## 2. Architecture
 
@@ -100,7 +98,6 @@ calls halt at the Control Plane for user approval.
 MacPilot operates in a dedicated browser profile, not the user's
 real profile.
 
-
 ### Decisions
 
 **Decision 1 — Core language: Python.**
@@ -122,7 +119,7 @@ on the MacBook and never leaves the machine. Qwen was chosen for the
 strongest tool-calling in its size class and permissive licensing;
 Gemma trails on tool-calling and carries a more restrictive licence.
 This is a router default under Principle 1, not a lock-in.
-Amended 2026-11-24 (hardware): the dev MacBook is an M1 Pro
+Hardware note (2026-11-24): the development MacBook is an M1 Pro
 with 16 GB unified memory; a 27B-class model needs ~22 GB
 working room and cannot run. Local default on this machine is
 Qwen 8B-class (qwen3:8b). The 27B-class target stands for
@@ -171,7 +168,6 @@ fully excluded. Rule: the lethal trifecta — private data, untrusted
 content, external communication — never coexists in one run without
 an approval gate breaking one leg.
 
-
 ### Threat 2 — Malicious skills and MCP servers
 
 Attack: a skill or MCP server hides instructions in the capability
@@ -198,7 +194,6 @@ Residual risk: a patient attacker can pass review and trigger later;
 least privilege, traces and egress control shrink the payoff but do
 not make it zero.
 
-
 ### Threat 3 — Memory poisoning
 
 Attack: a false fact planted via crafted content (email, document,
@@ -220,7 +215,6 @@ beliefs about you" list surfaces in the morning brief for review.
 Residual risk: slow poisoning via the user's own repeated exposure
 cannot be fully separated from genuine preference change; provenance
 and the changelog keep it reversible.
-
 
 ### Threat 4 — Trace leakage: retention and redaction
 
@@ -295,7 +289,6 @@ Residual risk: the broker and the Mac are the high-value targets; a
 fully compromised machine defeats most of this. The design goal is
 that compromising the agent yields no keys.
 
-
 ### Threat 7 — Runaway loops and cost
 
 Threat: agents loop — stuck retries, endless re-planning, tools
@@ -316,7 +309,6 @@ keeps the burn rate low.
 Residual risk: slow-burn waste under the caps; caught by a weekly
 cost-by-task-type review in the morning brief. Budget numbers are
 v1 defaults, tuned from dogfooding data.
-
 
 ### Threat 8 — Approval fatigue
 
@@ -341,7 +333,6 @@ trigger a fatigue flag to the user and tighter asking.
 Residual risk: a determined user can rubber-stamp anything; design
 makes real decisions easy and fake ones visible, and measures the
 failure instead of hiding it.
-
 
 ## 4. Eval Design
 
@@ -381,7 +372,6 @@ rubric published and opinion scores labelled as such.
 Publication: all numbers ship in the repo README, including
 failures, with the failure taxonomy.
 
-
 ### Part 2 — Task-writing rules and failure taxonomy
 
 Task-writing rules: (1) Every task is a package: user-style
@@ -407,7 +397,6 @@ bad output); permission/gate event; classification error
 budget blowout (cost/latency); task ambiguity (the bench's fault
 — recorded honestly, task revised, score not hidden).
 
-
 ### Ablations (named in advance)
 
 SenseiBench reports three ablations from the first full run:
@@ -421,7 +410,7 @@ later phase per the frontier plan.
 Implementation does not begin until all of the following are true:
 
 - [x] §1 Product Definition complete and reviewed (2026-11-24)
-- [x] §2 Architecture complete and reviewed (2026-11-24, commits 9da7bbb–d6af242)
+- [x] §2 Architecture complete and reviewed (2026-11-24)
 - [x] §3 Threat Model complete and reviewed (2026-11-24)
 - [x] §4 Eval Design complete, with SenseiBench specified before any agent code (2026-11-24)
 - [x] Design reviewed against all 10 standards in [STANDARDS.md](STANDARDS.md) (2026-11-24; sandboxing line and ablations added in this review; production hygiene noted as an implementation-phase standard enforced from the first code commit; LICENSE diff against apache.org remains an open pre-publish item)

@@ -1,8 +1,8 @@
 # Slice 21 — Custodian: Sensei's memory served over MCP
 
 ## Why
-The Custodian idea: one shared
-memory that every tool reads and writes, so no tool has to be re-taught.
+The Custodian idea: one shared memory that every tool reads and writes, so
+no tool has to be re-taught.
 Sensei's MemoryStore (Slice 6) already has the hard properties — provenance
 on every entry, gated writes, provable deletion. What it lacks is reach:
 today only Sensei itself can use it. This slice serves the SAME store over
