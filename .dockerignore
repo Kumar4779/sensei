@@ -1,0 +1,14 @@
+# The demo image (packages/demo/Dockerfile) needs only these three packages. Everything else,
+# including .git, local virtualenvs, traces and results, stays out of the build context.
+*
+!packages/core/
+!packages/voice/
+!packages/demo/
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/.venv
+**/.pytest_cache
+packages/core/build
+**/.env
+**/.env.*

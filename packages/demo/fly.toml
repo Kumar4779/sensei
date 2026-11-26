@@ -1,0 +1,41 @@
+# Talk to Sensei on Fly.io (Demo Slice 2). Deploy from the repository root:
+#     fly deploy . --config packages/demo/fly.toml --dockerfile packages/demo/Dockerfile --ha=false
+#
+# Secrets (set with `fly secrets`, never here): DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, SENSEI_DEMO_TOKEN.
+# Spend limits are in the Dockerfile's CMD: $1.00 per server run and $5.00 per UTC day (persisted on /data).
+
+app = "sensei-talk"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"   # idle: the machine stops, so a quiet demo costs only its volume
+  auto_start_machines = true    # the next visitor starts it again (a cold start of a few seconds)
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"        # each visitor holds a ledger stream open
+    soft_limit = 40
+    hard_limit = 60
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+# One small instance: the smallest shared CPU, 256 MB.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# The daily spend counter survives restarts and redeploys here. Nothing else is written to it.
+[mounts]
+  source = "sensei_demo_data"
+  destination = "/data"

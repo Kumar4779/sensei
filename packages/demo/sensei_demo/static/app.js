@@ -125,7 +125,13 @@
         m.appendChild(el("span", "chip browser", "audio started in page " + ms(performance.now() - started) + " after you stopped"));
       }).catch(function () { showError("The browser blocked playback; click the page and try again."); });
     }
-    if (d.spend) { spend.textContent = "Estimated spend this server run: $" + d.spend.estimated_usd.toFixed(4) + " of $" + d.spend.cap_usd.toFixed(2) + " cap"; }
+    if (d.spend) { showSpend(d.spend); }
+  }
+
+  function showSpend(sp) {
+    spend.textContent = "Estimated provider spend today: $" + sp.today_usd.toFixed(4) + " of the $" +
+      sp.daily_cap_usd.toFixed(2) + " daily cap (resets 00:00 UTC) · this server run: $" + sp.estimated_usd.toFixed(4) +
+      " of $" + sp.cap_usd.toFixed(2);
   }
 
   function send(body, contentType) {
@@ -228,7 +234,7 @@
 
   function startScenario(id) {
     if (state.busy) { return; }
-    api("POST", "/api/sessions", { scenario: id }).then(function (d) {
+    api("POST", "/api/sessions", { scenario: id, replaces: state.sid }).then(function (d) {
       state.sid = d.session_id;
       state.scenario = d.scenario;
       Array.prototype.forEach.call(cards.children, function (c) { c.classList.toggle("active", c.dataset.id === id); });
@@ -297,7 +303,7 @@
     badgeDetail.textContent = status.mode_detail + " STT: " + (status.stt.provider || "–") + (status.stt.model ? " " + status.stt.model : "") +
       " · TTS: " + (status.tts.provider || "–") + (status.tts.model ? " " + status.tts.model : "");
     demoData.textContent = status.demo_data;
-    if (status.spend) { spend.textContent = "Estimated spend this server run: $" + status.spend.estimated_usd.toFixed(4) + " of $" + status.spend.cap_usd.toFixed(2) + " cap"; }
+    if (status.spend) { showSpend(status.spend); }
     buildCards(status);
     buildControls(status);
     startScenario(status.scenarios[0].id);

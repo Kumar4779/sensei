@@ -1044,3 +1044,53 @@ and the frozen task sets are unchanged.
   174 (173 plus the `smart_format` opt-in test).
 - **Root README:** the status text now says the Kimi API backend is live and
   MacPilot Slice 1 is built.
+
+## Talk to Sensei, hosted: Fly.io and abuse/spend limits (Demo Slice 2, #23)
+
+The demo is public at [sensei-talk.fly.dev](https://sensei-talk.fly.dev),
+behind an access token. The gate, the echo machine, the parser and the frozen
+task sets are unchanged.
+
+- **Env keys, chosen explicitly.** `make_stt` / `make_tts` take
+  `key_source="env"`, which reads `DEEPGRAM_API_KEY` / `ELEVENLABS_API_KEY` per
+  request, so rotation needs no restart.
+  - The Keychain stays the default, and the two sources never fall back to
+    each other.
+  - A missing key fails closed, naming the variable, never a value.
+  - The demo selects it with `--keys env`.
+- **Public-abuse limits** (`sensei_demo/limits.py`), all configurable:
+  - **Daily ceiling:** a global $5.00 a day across every session and run,
+    persisted (0600, atomic writes) and rolled over at 00:00 UTC. It sits on
+    top of the $1.00 per-run cap.
+  - **Rate limits per client IP:** 12 new sessions an hour and 40
+    utterances per 10 minutes, with `Retry-After` on refusal.
+  - **Session cap:** 8 simultaneous sessions. Idle ones stop counting after
+    15 minutes, and switching scenario cards frees only the visitor's own
+    previous session.
+  - **Client IP:** a proxy IP header is trusted only when configured
+    (`--trusted-ip-header Fly-Client-IP`).
+  - **Token:** still required, set from a Fly secret, so it can be rotated.
+- **Packaging:**
+  - `packages/demo/Dockerfile` (python:3.12-slim) includes only core, voice
+    and demo, filtered by a root `.dockerignore`, and the image holds no
+    secret.
+  - The server runs as UID 10001. The entrypoint's only root step is handing
+    the volume to that user.
+  - `fly.toml`: one shared-cpu-1x, 256 MB machine in `ord` that auto-stops
+    when idle, with a 1 GB volume for the daily counter only. Visitors'
+    transcripts stay on ephemeral disk.
+- **Secrets** were set with `fly secrets import`, straight from the Keychain,
+  so no value was printed. The demo token is a new Keychain item,
+  `sensei-demo-token`.
+- **Verified over the public URL** in Google Chrome with live speech, using
+  the substitute microphone from Slice 1:
+  - brief: allowed, executed, verified;
+  - note: echoed, approved, executed once, verified;
+  - pay: echoed, declined, nothing executed, verified.
+
+  Time to first audio was 431–715 ms server-side and 496–839 ms in the page.
+- **Cost:** the machine is $2.19 a month if always on, and the volume $0.15.
+  With auto-stop, an idle demo costs about the volume. Provider spend for the
+  verification run was about $0.03.
+- **Tests:** demo 69 (54 + 15), voice 179 (174 + 5), all offline. No test
+  writes under `~/.sensei`.

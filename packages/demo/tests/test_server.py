@@ -80,7 +80,7 @@ def test_status_states_live_speech_and_the_real_providers(live_factory):
     assert (s["mode"], s["mode_label"]) == ("live", "LIVE SPEECH")
     assert s["stt"] == {"provider": "deepgram", "model": "nova-3"}
     assert s["tts"] == {"provider": "elevenlabs", "model": "eleven_flash_v2_5"}
-    assert s["spend"] == {"estimated_usd": 0.0, "cap_usd": 1.0}
+    assert s["spend"] == {"estimated_usd": 0.0, "cap_usd": 1.0, "today_usd": 0.0, "daily_cap_usd": 5.0}
 
 
 def test_a_simulated_server_never_takes_audio_and_a_live_one_never_takes_typing(simulated, live_factory):

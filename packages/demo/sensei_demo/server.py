@@ -24,6 +24,14 @@ so the page cannot simulate silently.
 The ledger streams as Server-Sent Events over fetch (GET .../ledger). Fetch
 is used instead of EventSource so the token travels in a header, never in a
 URL.
+
+Public-abuse limits (Demo Slice 2, sensei_demo/limits.py), all configurable:
+  - a global daily spend ceiling across every session and server run, persisted
+    with UTC date rollover, on top of the per-run cap;
+  - per-IP rate limits on new sessions and on utterances;
+  - a cap on simultaneous sessions. A session idle past the timeout stops
+    counting, and a visitor switching scenario cards frees the session it
+    replaces.
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -51,17 +60,19 @@ from voice.speech import SpeechUnavailable
 from voice.verify import verify_run
 
 from sensei_demo.ledger import Ledger, LedgerTrace
+from sensei_demo.limits import DailySpend, RateLimiter, client_ip, utc_today
 from sensei_demo.scenarios import DEMO_DATA_LABEL, SCENARIOS, world_for
 
 TOKEN_ENV = "SENSEI_DEMO_TOKEN"
 ALLOW_LAN_ENV = "SENSEI_DEMO_ALLOW_LAN"
 DEFAULT_PORT = 8766  # the gateway is 8765
-DEFAULT_TRACE_DIR = Path.home() / ".sensei" / "demo" / "traces"
+DEFAULT_STATE_DIR = Path.home() / ".sensei" / "demo"
+DEFAULT_TRACE_DIR = DEFAULT_STATE_DIR / "traces"
+SPEND_FILE = "daily-spend.json"
 STATIC_DIR = Path(__file__).with_name("static")
 APP_FILES = {"app.js": "text/javascript", "app.css": "text/css"}  # fixed list: no path is taken from the URL
 MAX_AUDIO_BYTES = 2_000_000  # about a minute of browser Opus; a push-to-talk turn is a few seconds
 MAX_TEXT_CHARS = 500
-MAX_SESSIONS = 8
 KEEPALIVE_SECONDS = 15.0
 # Spend estimate for the cap (list prices checked 2026-11-26; TTS deliberately conservative).
 TTS_USD_PER_1K_CHARS = 0.06
@@ -72,6 +83,18 @@ SHELL_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style
 log = logging.getLogger("sensei.demo")
 
 Mode = Literal["live", "simulated"]
+
+
+@dataclass(frozen=True)
+class Limits:
+    """Public-abuse limits. The defaults suit one small instance shown to a handful of visitors at a time."""
+
+    daily_usd: float = 5.00  # estimated provider spend per UTC day, across every session and run
+    sessions_per_ip: tuple[int, float] = (12, 3600.0)  # new sessions per client IP per hour
+    turns_per_ip: tuple[int, float] = (40, 600.0)  # utterances per client IP per 10 minutes
+    max_sessions: int = 8  # simultaneous sessions
+    session_idle_seconds: float = 900.0  # a session idle this long stops counting toward max_sessions
+    trusted_ip_header: str | None = None  # e.g. "Fly-Client-IP", behind a proxy that sets it; never by default
 
 
 class DemoConfigError(RuntimeError):
@@ -99,17 +122,23 @@ class DemoSession:
     ledger: Ledger
     trace: LedgerTrace
     voice: VoiceSession
+    ip: str = ""
+    last_used: float = 0.0
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
-def _error(status: int, message: str, **extra: Any) -> JSONResponse:
-    return JSONResponse({"error": message, **extra}, status_code=status, headers={"Cache-Control": "no-store"})
+def _error(status: int, message: str, retry_after: float | None = None, **extra: Any) -> JSONResponse:
+    headers = {"Cache-Control": "no-store"}
+    if retry_after is not None:
+        headers["Retry-After"] = str(max(1, int(retry_after + 0.999)))
+    return JSONResponse({"error": message, **extra}, status_code=status, headers=headers)
 
 
 def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = None,
                tts_factory: Callable[[Callable[[bytes], None]], TextToSpeech] | None = None,
-               trace_dir: str | Path = DEFAULT_TRACE_DIR, max_usd: float = 1.00,
-               token: str | None = None) -> FastAPI:
+               trace_dir: str | Path | None = None, max_usd: float = 1.00,
+               token: str | None = None, limits: Limits = Limits(), state_dir: str | Path | None = None,
+               clock: Callable[[], float] = time.monotonic, today: Callable[[], str] = utc_today) -> FastAPI:
     token = token if token is not None else os.environ.get(TOKEN_ENV, "")
     if not token:  # fail closed: never serve without auth
         raise DemoConfigError(f"{TOKEN_ENV} is not set; refusing to start the demo without auth")
@@ -123,12 +152,29 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
     live_tts = tts_factory(capture) if mode == "live" else None  # type: ignore[misc]
     live_turn = threading.Lock()  # one live turn at a time: the capture holds one reply
     sessions: OrderedDict[str, DemoSession] = OrderedDict()
-    trace_dir = Path(trace_dir)
+    trace_dir = Path(trace_dir) if trace_dir is not None else DEFAULT_TRACE_DIR
+    state_dir = Path(state_dir) if state_dir is not None else DEFAULT_STATE_DIR
+    daily = DailySpend(state_dir / SPEND_FILE, limits.daily_usd, today=today)
+    session_rate = RateLimiter(*limits.sessions_per_ip, clock=clock)
+    turn_rate = RateLimiter(*limits.turns_per_ip, clock=clock)
 
-    def spent_usd() -> float:
+    def spent_raw() -> float:
         chars = getattr(live_tts, "characters", 0)
         seconds = getattr(live_stt, "audio_seconds", 0.0)
-        return round(chars / 1000 * TTS_USD_PER_1K_CHARS + seconds / 60 * STT_USD_PER_MIN, 4)
+        return chars / 1000 * TTS_USD_PER_1K_CHARS + seconds / 60 * STT_USD_PER_MIN
+
+    def spent_usd() -> float:
+        return round(spent_raw(), 4)
+
+    def spend_body() -> dict[str, Any]:
+        return {"estimated_usd": spent_usd(), "cap_usd": max_usd,
+                "today_usd": daily.spent(), "daily_cap_usd": limits.daily_usd}
+
+    def prune() -> None:
+        """Forget sessions idle past the timeout: they no longer hold a slot. Their traces stay on disk."""
+        cutoff = clock() - limits.session_idle_seconds
+        for sid in [sid for sid, s in sessions.items() if s.last_used < cutoff and not s.lock.locked()]:
+            del sessions[sid]
 
     def adapter(a: Any) -> dict[str, Any]:
         return {"provider": getattr(a, "name", None), "model": getattr(a, "model", None)}
@@ -188,7 +234,7 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
             "demo_data": DEMO_DATA_LABEL,
             "scenarios": [s.to_dict() for s in SCENARIOS.values()]}
         if mode == "live":
-            body["spend"] = {"estimated_usd": spent_usd(), "cap_usd": max_usd}
+            body["spend"] = spend_body()
         return JSONResponse(body, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/sessions")
@@ -196,11 +242,23 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
         if not authed(request):
             return _error(401, "unauthorized: missing or invalid X-Sensei-Token")
         try:
-            scenario = (await request.json()).get("scenario")
+            body = await request.json()
+            scenario, replaces = body.get("scenario"), body.get("replaces")
         except (ValueError, AttributeError):
             return _error(400, "body must be JSON: {\"scenario\": ...}")
         if scenario not in SCENARIOS:
             return _error(404, f"unknown scenario; choose from {', '.join(SCENARIOS)}")
+        ip = client_ip(request, limits.trusted_ip_header)
+        wait = session_rate.hit(ip)
+        if wait is not None:
+            return _error(429, "too many new sessions from your address; try again shortly", retry_after=wait)
+        old = sessions.get(replaces) if isinstance(replaces, str) else None
+        if old is not None and old.ip == ip and not old.lock.locked():
+            del sessions[replaces]  # the same visitor switching cards: free the slot it held
+        prune()
+        if len(sessions) >= limits.max_sessions:
+            return _error(503, f"the demo is at capacity ({limits.max_sessions} visitors); try again in a few minutes",
+                          retry_after=60)
         sid = uuid.uuid4().hex[:16]
         ledger = Ledger()
         trace = LedgerTrace(trace_dir / f"demo-{sid}.jsonl", run_id=f"demo-{sid}", session_id=f"demo-{scenario}",
@@ -208,9 +266,7 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
         voice = VoiceSession(trace, world=world_for(scenario),
                              stt=live_stt if mode == "live" else FakeSTT(),
                              tts=live_tts if mode == "live" else FakeTTS())
-        sessions[sid] = DemoSession(sid, scenario, ledger, trace, voice)
-        while len(sessions) > MAX_SESSIONS:
-            sessions.popitem(last=False)  # the oldest is forgotten here; its trace stays on disk
+        sessions[sid] = DemoSession(sid, scenario, ledger, trace, voice, ip=ip, last_used=clock())
         return JSONResponse({"session_id": sid, "scenario": SCENARIOS[scenario].to_dict()},
                             status_code=201, headers={"Cache-Control": "no-store"})
 
@@ -247,7 +303,7 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
         if error is not None:
             body.update(error)  # the turn ran and is traced, but its reply could not be spoken
         if mode == "live":
-            body["spend"] = {"estimated_usd": spent_usd(), "cap_usd": max_usd}
+            body["spend"] = spend_body()
         return 200, body
 
     @app.post("/api/sessions/{sid}/turn")
@@ -256,7 +312,11 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
             return _error(401, "unauthorized: missing or invalid X-Sensei-Token")
         s = session_or_none(sid)
         if s is None:
-            return _error(404, "no such session")
+            return _error(404, "no such session (it may have expired); pick a scenario to start again")
+        s.last_used = clock()
+        wait = turn_rate.hit(client_ip(request, limits.trusted_ip_header))
+        if wait is not None:
+            return _error(429, "too many utterances from your address; try again shortly", retry_after=wait)
         ctype = request.headers.get("content-type", "").split(";")[0].strip().lower()
         declared = request.headers.get("content-length")
         if declared is not None and declared.isdigit() and int(declared) > MAX_AUDIO_BYTES:
@@ -272,7 +332,10 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
             if not body:
                 return _error(400, "empty recording")
             if spent_usd() >= max_usd:
-                return _error(429, f"the demo's spend cap (${max_usd:.2f}) is reached; restart to reset it")
+                return _error(429, f"the demo's spend cap for this server run (${max_usd:.2f}) is reached")
+            if not daily.allows():
+                return _error(429, f"today's demo budget (${limits.daily_usd:.2f}) is used up; "
+                                   "it resets at 00:00 UTC")
             utterance = ScriptedUtterance("", audio=bytes(body))
         else:
             if ctype != "application/json":
@@ -285,7 +348,14 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
                 return _error(400, f"text must be 1–{MAX_TEXT_CHARS} characters")
             utterance = parse_line(text.strip())
         del body
-        code, payload = await asyncio.to_thread(run_turn, s, utterance)
+        before = spent_raw()
+        try:
+            code, payload = await asyncio.to_thread(run_turn, s, utterance)
+        finally:
+            daily.add(spent_raw() - before)  # whatever the providers were sent counts, even if the turn failed
+            s.last_used = clock()
+        if mode == "live" and "spend" in payload:
+            payload["spend"] = spend_body()
         return JSONResponse(payload, status_code=code, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/sessions/{sid}/ledger")
@@ -295,6 +365,7 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
         s = session_or_none(sid)
         if s is None:
             return _error(404, "no such session")
+        s.last_used = clock()
         last = request.headers.get("last-event-id", "")
         cursor = max(0, after, int(last) + 1 if last.isdigit() else 0)
 
@@ -319,6 +390,7 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
 
     app.state.sessions = sessions
     app.state.live_stt = live_stt
+    app.state.daily = daily
     app.state.spent_usd = spent_usd
     return app
 

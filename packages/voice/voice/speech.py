@@ -6,13 +6,16 @@ the echo state machine are unchanged. They are never the default:
 named provider whose Keychain key is missing fails closed (it never falls
 back to the fake, and never to an environment variable or a file).
 
-Keys come from core's credential broker, as the Kimi key does:
+Keys come from core's credential broker by default, as the Kimi key does:
 
     security add-generic-password -a sensei -s sensei-deepgram-api-key -U -w
     security add-generic-password -a sensei -s sensei-elevenlabs-api-key -U -w
 
-A key is read for one request and never stored on an adapter, logged, traced
-or put in an error message.
+A host without a Keychain (the hosted demo, Demo Slice 2) selects
+key_source="env" explicitly, and the keys are read from DEEPGRAM_API_KEY and
+ELEVENLABS_API_KEY in the server's environment. There is no fallback between
+the two sources. Either way a key is read for one request and never stored on
+an adapter, logged, traced or put in an error message.
 
 Audio (the Slice 3 discipline, on the real path). Captured audio goes to the
 STT and is dropped; synthesized audio goes to the player and is dropped.
@@ -50,6 +53,9 @@ ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech"
 DEFAULT_DEEPGRAM_MODEL = "nova-3"
 DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5"
 DEFAULT_VOICE_ID = "EXAVITQu4vr4xnSDxMaL"  # an ElevenLabs default voice (usable on every plan): one fixed agent voice
+DEEPGRAM_KEY_ENV = "DEEPGRAM_API_KEY"
+ELEVENLABS_KEY_ENV = "ELEVENLABS_API_KEY"
+KEY_SOURCES = ("keychain", "env")  # keychain: the local default; env: a host without a Keychain, chosen explicitly
 STT_PROVIDERS = ("fake", "deepgram")
 TTS_PROVIDERS = ("fake", "elevenlabs")
 
@@ -63,9 +69,28 @@ class SpeechUnavailable(RuntimeError):
 
 
 class SpeechKeyMissing(SpeechUnavailable):
-    def __init__(self, provider: str, service: str) -> None:
-        super().__init__(f"{provider} was selected but its key is not in the Keychain "
-                         f"(service {service}, account sensei)", "key_missing")
+    def __init__(self, provider: str, where: str) -> None:
+        super().__init__(f"{provider} was selected but its key is not in {where}", "key_missing")
+
+
+_KEYS = {"deepgram": ("Deepgram", DEEPGRAM_KEY_SERVICE, DEEPGRAM_KEY_ENV),
+         "elevenlabs": ("ElevenLabs", ELEVENLABS_KEY_SERVICE, ELEVENLABS_KEY_ENV)}
+
+
+def key_where(provider: str, source: str = "keychain") -> str:
+    """Where a provider's key is looked for: named in errors, never with a value."""
+    _, service, env = _KEYS[provider]
+    return f"the environment ({env})" if source == "env" else f"the Keychain (service {service}, account sensei)"
+
+
+def key_reader(provider: str, source: str = "keychain") -> Callable[[], str | None]:
+    """A per-call key lookup from the configured source. Nothing is cached; a missing key is None."""
+    if source not in KEY_SOURCES:
+        raise ValueError(f"unknown key source {source!r}; choose from {', '.join(KEY_SOURCES)}")
+    _, service, env = _KEYS[provider]
+    if source == "env":
+        return lambda: os.environ.get(env, "").strip() or None
+    return lambda: keychain_secret(service)
 
 
 def _ms(start: float, end: float) -> float:
@@ -109,12 +134,14 @@ class DeepgramSTT:
     def __init__(self, model: str = DEFAULT_DEEPGRAM_MODEL, *, language: str = "en", timeout: float = 30.0,
                  smart_format: bool = False,
                  key: Callable[[], str | None] = lambda: keychain_secret(DEEPGRAM_KEY_SERVICE),
+                 key_where: str = key_where("deepgram"),
                  opener: Callable[..., Any] = urllib.request.urlopen) -> None:
         self.model = model
         self.language = language
         self.timeout = timeout
         self.smart_format = smart_format
         self._key = key
+        self._key_where = key_where
         self._open = opener
         self.audio_bytes_seen = 0  # a count, for tests and spend estimates; the bytes are not kept
         self.audio_seconds = 0.0  # what Deepgram billed as the audio's duration, summed
@@ -130,7 +157,7 @@ class DeepgramSTT:
             raise SpeechUnavailable("no audio was captured for this utterance", "no_audio")
         key = self._key()
         if not key:
-            raise SpeechKeyMissing("Deepgram", DEEPGRAM_KEY_SERVICE)
+            raise SpeechKeyMissing("Deepgram", self._key_where)
         request = urllib.request.Request(self.url(), data=audio, method="POST", headers={
             "Authorization": f"Token {key}", "Content-Type": "audio/*"})
         del key
@@ -173,6 +200,7 @@ class ElevenLabsTTS:
     def __init__(self, voice_id: str = DEFAULT_VOICE_ID, model: str = DEFAULT_ELEVENLABS_MODEL, *,
                  output_format: str = "mp3_44100_128", timeout: float = 30.0,
                  key: Callable[[], str | None] = lambda: keychain_secret(ELEVENLABS_KEY_SERVICE),
+                 key_where: str = key_where("elevenlabs"),
                  opener: Callable[..., Any] = urllib.request.urlopen,
                  player: Callable[[bytes], None] | None = None) -> None:
         self.voice_id = voice_id
@@ -180,6 +208,7 @@ class ElevenLabsTTS:
         self.output_format = output_format
         self.timeout = timeout
         self._key = key
+        self._key_where = key_where
         self._open = opener
         self.player = player if player is not None else play_audio
         self.spoken: list[str] = []  # reply text only, as FakeTTS keeps it
@@ -194,7 +223,7 @@ class ElevenLabsTTS:
     def synthesize(self, text: str) -> Synthesis:
         key = self._key()
         if not key:
-            raise SpeechKeyMissing("ElevenLabs", ELEVENLABS_KEY_SERVICE)
+            raise SpeechKeyMissing("ElevenLabs", self._key_where)
         request = urllib.request.Request(
             self.url(), data=json.dumps({"text": text, "model_id": self.model}).encode("utf-8"), method="POST",
             headers={"xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg"})
@@ -266,29 +295,35 @@ def record_utterance(*, max_seconds: float = 15.0, recorder: str | None = None,
     return out.stdout
 
 
-def _key_present(service: str, lookup: Callable[[str], str | None] | None) -> bool:
-    return bool((lookup or keychain_secret)(service))  # the value is checked and dropped here, never kept
+def _real(provider: str, key_source: str, lookup: Callable[[str], str | None] | None,
+          kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Check the configured source has the key (the value is checked and dropped), then wire the adapter to it."""
+    label, service, _ = _KEYS[provider]
+    key = key_reader(provider, key_source)
+    if lookup is not None and key_source == "keychain":
+        key = lambda: lookup(service)  # noqa: E731  (tests inject the Keychain lookup)
+    if not key():
+        raise SpeechKeyMissing(label, key_where(provider, key_source))
+    return {"key": key, "key_where": key_where(provider, key_source), **kwargs}
 
 
-def make_stt(provider: str = "fake", *, lookup: Callable[[str], str | None] | None = None,
-             **kwargs: Any) -> SpeechToText:
-    """The STT for a configured provider. The fake unless a real one is named; a named one needs its key."""
+def make_stt(provider: str = "fake", *, key_source: str = "keychain",
+             lookup: Callable[[str], str | None] | None = None, **kwargs: Any) -> SpeechToText:
+    """The STT for a configured provider. The fake unless a real one is named; a named one needs its key,
+    from the Keychain unless key_source="env" is chosen explicitly."""
     if provider == "fake":
         return FakeSTT()
     if provider == "deepgram":
-        if not _key_present(DEEPGRAM_KEY_SERVICE, lookup):
-            raise SpeechKeyMissing("Deepgram", DEEPGRAM_KEY_SERVICE)
-        return DeepgramSTT(**kwargs)
+        return DeepgramSTT(**_real("deepgram", key_source, lookup, kwargs))
     raise ValueError(f"unknown STT provider {provider!r}; choose from {', '.join(STT_PROVIDERS)}")
 
 
-def make_tts(provider: str = "fake", *, lookup: Callable[[str], str | None] | None = None,
-             **kwargs: Any) -> TextToSpeech:
-    """The TTS for a configured provider. The fake unless a real one is named; a named one needs its key."""
+def make_tts(provider: str = "fake", *, key_source: str = "keychain",
+             lookup: Callable[[str], str | None] | None = None, **kwargs: Any) -> TextToSpeech:
+    """The TTS for a configured provider. The fake unless a real one is named; a named one needs its key,
+    from the Keychain unless key_source="env" is chosen explicitly."""
     if provider == "fake":
         return FakeTTS()
     if provider == "elevenlabs":
-        if not _key_present(ELEVENLABS_KEY_SERVICE, lookup):
-            raise SpeechKeyMissing("ElevenLabs", ELEVENLABS_KEY_SERVICE)
-        return ElevenLabsTTS(**kwargs)
+        return ElevenLabsTTS(**_real("elevenlabs", key_source, lookup, kwargs))
     raise ValueError(f"unknown TTS provider {provider!r}; choose from {', '.join(TTS_PROVIDERS)}")

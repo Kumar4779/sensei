@@ -363,3 +363,46 @@ def test_a_real_audio_trial_records_a_failure_the_frozen_taxonomy_cannot_label(t
     trial = real_audio.run_trial(heard_right, tmp_path / "b.jsonl")
     assert trial.label.startswith("unlabelled") and trial.verdict.passed and trial.world["payments"] == []
     assert harness.label is not None and harness.label.__name__ == "label"  # the harness is left as it was
+
+
+# 6. Demo Slice 2: keys from the environment, for a host without a Keychain, chosen explicitly
+
+def test_env_keys_are_used_only_when_selected_and_never_mixed_with_the_keychain(monkeypatch):
+    asked = []
+    monkeypatch.setattr(speech, "keychain_secret", lambda service, **kw: asked.append(service) or None)
+    monkeypatch.setenv("DEEPGRAM_API_KEY", KEY)
+    monkeypatch.setenv("ELEVENLABS_API_KEY", KEY)
+    stt, tts = make_stt("deepgram", key_source="env"), make_tts("elevenlabs", key_source="env")
+    assert isinstance(stt, DeepgramSTT) and isinstance(tts, ElevenLabsTTS) and asked == []
+    with pytest.raises(SpeechKeyMissing) as e:  # the default is still the Keychain: no fallback to the environment
+        make_stt("deepgram")
+    assert "Keychain" in str(e.value) and asked == ["sensei-deepgram-api-key"]
+
+
+@pytest.mark.parametrize("make, provider, env", [(make_stt, "deepgram", "DEEPGRAM_API_KEY"),
+                                                 (make_tts, "elevenlabs", "ELEVENLABS_API_KEY")])
+def test_a_missing_env_key_fails_closed_naming_the_variable_not_a_value(monkeypatch, make, provider, env):
+    monkeypatch.setattr(speech, "keychain_secret", lambda service, **kw: KEY)  # present there, but not selected
+    monkeypatch.setenv(env, "   ")
+    with pytest.raises(SpeechKeyMissing) as e:
+        make(provider, key_source="env")
+    assert env in str(e.value) and "environment" in str(e.value) and KEY not in str(e.value)
+
+
+def test_an_env_key_is_read_per_request_so_rotation_needs_no_restart(monkeypatch):
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "first-key-0000")
+    stt = make_stt("deepgram", key_source="env")
+    opener = Opener(deepgram_reply("Yes.", 0.97), deepgram_reply("Yes.", 0.97))
+    stt._open = opener
+    stt.transcribe(heard())
+    monkeypatch.setenv("DEEPGRAM_API_KEY", "rotated-key-1111")
+    stt.transcribe(heard())
+    assert [r.get_header("Authorization") for r in opener.requests] == ["Token first-key-0000", "Token rotated-key-1111"]
+    monkeypatch.delenv("DEEPGRAM_API_KEY")
+    with pytest.raises(SpeechKeyMissing, match="DEEPGRAM_API_KEY"):
+        stt.transcribe(heard())
+
+
+def test_an_unknown_key_source_is_refused():
+    with pytest.raises(ValueError, match="key source"):
+        make_stt("deepgram", key_source="dotenv")
