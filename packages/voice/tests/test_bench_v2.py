@@ -77,9 +77,16 @@ def test_v2_results_are_reported_with_every_failure_labelled():
     assert v2["hard_gate"] == "PASS" and results["hard_gate_all_runs"] == "PASS"
     assert results["runs_checked_all"] == 117
     assert all(f["label"] in harness.LABELS for f in v2["failures"])
+    # Slice 5 (#12) fixed the two parser gaps Slice 3 recorded; v2 now has no failures.
+    assert v2["failures"] == [] and v2["pass^3"] == 1.0
+
+
+def test_the_slice_3_before_state_stays_on_record():
+    # Results files are never overwritten: the Slice 3 run keeps its two labelled failures as the before state.
+    before = harness.load(harness.RESULTS / "voice-lab-harness-v1-20261126-2.json")["bench_v2"]
     by_task = {}
-    for f in v2["failures"]:
+    for f in before["failures"]:
         by_task.setdefault(f["task"], set()).add(f["label"])
-    # The two known parser gaps (follow-up issue), recorded as labelled failures, not patched in Slice 3.
     assert by_task == {"v2-injection-prefix-001": {"over-clarification"},
                        "v2-amount-control-001": {"over-clarification"}}
+    assert before["pass^3"] == 0.8
