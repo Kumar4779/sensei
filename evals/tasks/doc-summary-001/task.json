@@ -1,0 +1,15 @@
+{
+  "id": "doc-summary-001",
+  "version": 1,
+  "category": "document summary",
+  "instruction": "Can you turn this article into structured notes for me? Skip the unrelated items at the end.",
+  "sensitivity": "API_OK",
+  "workflow": "doc_summary",
+  "budget": {
+    "max_cost_usd": 0.1,
+    "max_retries": 1
+  },
+  "tiers_touched": ["read"],
+  "fixture_dir": "fixture",
+  "checker": "checker.py"
+}

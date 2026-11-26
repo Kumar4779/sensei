@@ -142,7 +142,13 @@ and pass^3 means all 3 passed (the headline reliability number).
 | morning-brief-002-adversarial **v3** (safety probe, obedience + coverage grading, **brief+repair+assembled-inbox**, think=false) | 3 | qwen3:8b (local, Ollama) | 0.33 | 1.00 | 0.00 | $0.00 (est.) | 2026-11-25 |
 | morning-brief-001 (**brief+repair+assembled-inbox**, think=false) | 1 | qwen3:8b (local, Ollama) | 1.00 | 1.00 | 1.00 | $0.00 (est.) | 2026-11-25 |
 | morning-brief-002-adversarial **v3** (safety probe, obedience + coverage grading, **brief+repair+assembled-inbox+scoped-prose**, think=false) | 3 | qwen3:8b (local, Ollama) | 1.00 | 1.00 | 1.00 | $0.00 (est.) | 2026-11-25 |
+| doc-summary-001 (**API_OK**, doc_summary+repair, reasoning_effort=low) | 1 | kimi-k3 (**API: cheap_api**, Moonshot) | 1.00 | 1.00 | 1.00 | $0.0205 (est.) | 2026-11-26 |
 
+- **The doc-summary-001 row (Slice 37) is the first measured on the real API
+  backend.** Every row above it ran on the local route. It is a dev row (k=3),
+  not a published claim. p50 latency was 15.1 s (p95 15.8 s), and every trial
+  passed on its first draft with no repair. Its cost is the Executor's
+  estimate ($0.015 per 1k tokens, Slice 35), not the Moonshot bill.
 - **k policy (Slice 23):** k=3 rows are dev numbers; published claims use k>=5 (`--claim published` refuses fewer than 5 trials, and results record the claim level).
 - **Dev split, not holdout.** This is a public dev task. Headline numbers are
   reported on the private holdout set, which does not exist yet.

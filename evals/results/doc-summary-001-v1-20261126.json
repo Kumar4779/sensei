@@ -1,0 +1,83 @@
+{
+  "task": {
+    "id": "doc-summary-001",
+    "version": 1,
+    "category": "document summary",
+    "sensitivity": "API_OK"
+  },
+  "workflow": "doc_summary+repair",
+  "claim": "dev",
+  "settings": {
+    "local_private.think": false,
+    "cheap_api.model": "kimi-k3",
+    "cheap_api.reasoning_effort": "low",
+    "cheap_api.max_completion_tokens": 4096
+  },
+  "budget": {
+    "max_cost_usd": 0.1,
+    "max_retries": 1
+  },
+  "models": [
+    "kimi-k3"
+  ],
+  "routes": [
+    "cheap_api"
+  ],
+  "started_at": "2026-11-26T18:02:36.884616+00:00",
+  "finished_at": "2026-11-26T18:03:16.847292+00:00",
+  "aggregates": {
+    "k": 3,
+    "passes": 3,
+    "pass^1": 1.0,
+    "pass@3": 1.0,
+    "pass^3": 1.0,
+    "mean_est_cost_usd": 0.020489999999999998,
+    "latency_ms_p50": 15112.8,
+    "latency_ms_p95": 15810.7,
+    "cost_basis": "estimated"
+  },
+  "trials": [
+    {
+      "trial": 1,
+      "passed": true,
+      "latency_ms": 8719.2,
+      "est_cost_usd": 0.02061,
+      "failed_checks": [],
+      "route": "cheap_api",
+      "model": "kimi-k3",
+      "error": null,
+      "attempts": 1,
+      "artifact_name": "summary.json",
+      "checker_extra": {},
+      "artifact": null
+    },
+    {
+      "trial": 2,
+      "passed": true,
+      "latency_ms": 15810.7,
+      "est_cost_usd": 0.021075,
+      "failed_checks": [],
+      "route": "cheap_api",
+      "model": "kimi-k3",
+      "error": null,
+      "attempts": 1,
+      "artifact_name": "summary.json",
+      "checker_extra": {},
+      "artifact": null
+    },
+    {
+      "trial": 3,
+      "passed": true,
+      "latency_ms": 15112.8,
+      "est_cost_usd": 0.019784999999999997,
+      "failed_checks": [],
+      "route": "cheap_api",
+      "model": "kimi-k3",
+      "error": null,
+      "attempts": 1,
+      "artifact_name": "summary.json",
+      "checker_extra": {},
+      "artifact": null
+    }
+  ]
+}

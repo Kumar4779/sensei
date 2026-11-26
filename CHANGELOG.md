@@ -723,3 +723,74 @@ a call.
     removed, replay diverges at the decision it would then re-derive.
   - Planted regressions are caught: dropping the quota branch fails 4 tests,
     and dropping the replay rule fails the replay test.
+
+## The first API_OK bench task: doc-summary on Kimi (Slice 37, #3)
+
+Every earlier SenseiBench task is LOCAL_ONLY, so the bench had never measured
+the real backend. `doc-summary-001` is API_OK by design and graded the same
+way as every other task: final state, never transcripts.
+
+- **The `doc_summary` workflow (`doc_summary.py`):** from a source document it
+  writes `summary.json` with `title`, `key_points` (a list), `entities` and a
+  one-sentence `abstract`.
+  - Verify and repair work as in the brief: one draft, the workflow's own
+    checks, and at most one repair from the failed check labels.
+  - Its checks come from the input alone: the shape, entities grounded in the
+    main article, one sentence, and no distinctive term from the section the
+    source marks as unrelated.
+  - Requests are API_OK and "simple", so they go to `cheap_api`. A failure
+    retries the same route and never escalates to the fake frontier client.
+- **The task package, `evals/tasks/doc-summary-001/`:**
+  - **Fixture:** a frozen synthetic article of 579 words, with unambiguous
+    facts and a distractor section marked as unrelated.
+  - **`task.json`:** declares `"workflow": "doc_summary"` and
+    `"sensitivity": "API_OK"`.
+  - **`checker.py`:** deterministic checks only: the required fields, the key
+    facts verbatim in the right fields, and no distractor facts.
+  - **Ground truth** is in `expected.json` beside the checker, outside
+    `fixture/`.
+- **The bench dispatches by task metadata.** A task that names a `workflow`
+  gets that one, and an unknown name is refused when the task loads. The four
+  frozen brief packages name none and dispatch by id as before; their files
+  are untouched.
+  - Failed trials' outputs keep their own file name as artifacts
+    (`summary.json`, not always `brief.md`).
+- **The bench CLI now runs the real gates on `cheap_api`:** `KimiClient`
+  (Slice 35) instead of a fake, the shipped `[budgets]` caps, and the egress
+  log. LOCAL_ONLY tasks never reach that route, so brief runs are unchanged.
+  An API_OK run records `cheap_api.model`, `reasoning_effort` and
+  `max_completion_tokens` in its settings.
+- **Ground truth stays isolated (Slice 23):** a trial's sandbox holds only
+  `fixture/source.md`. The hostile probe is unchanged and passes over all five
+  tasks.
+- **Tests:**
+  - The checker passes the gold summary. It fails empty, invalid and missing
+    output, a distractor leak in each field, a fact in the wrong field, and a
+    two-sentence abstract.
+  - The workflow's own checks, the repair (exactly one) and its prompt (labels
+    only, no grading material) are covered.
+  - Dispatch is tested: doc-summary goes to `doc_summary`, every brief task to
+    the brief workflow, and an unknown name is refused.
+  - A stubbed bench run is graded by the subprocess checker under the family
+    `doc-summary-001@v1`. A failed trial keeps its artifact, and the sandbox
+    contents are checked.
+- **The bench run (2026-11-26, dev claim, k=3, real `cheap_api` / `kimi-k3`,
+  `reasoning_effort=low`, Keychain key, $1.00 daily cap in force):**
+  - **Estimated before running:** about $0.019 per call, so about $0.06 for
+    three trials (about $0.12 if every trial repaired).
+  - **pass^1 1.00, pass@3 1.00, pass^3 1.00.** Every trial passed on its
+    first draft, with no repairs.
+  - **Latency:** p50 15.1 s, p95 15.8 s.
+  - **Cost:** $0.0205 estimated per trial. Today's estimated API spend is
+    $0.0618 of the $1.00 cap, so no spend alert fired.
+  - **Egress:** 3 records to `api.moonshot.ai`, `ok: true`, 4,095 bytes out
+    and 1,179–1,523 bytes back each, as digests only.
+  - **Results:** `evals/results/doc-summary-001-v1-20261126.json`.
+- **Shadow report for `doc-summary-001@v1`:** 3 runs, 0 agree (0.0%), est diff
+  -$0.046080.
+  - The rules router sent every run to `cheap_api`. The cost-aware shadow
+    policy would have sent all three to `local_private`, because it is $0.00
+    and eligible for API_OK content.
+  - That is the first bench-scale disagreement on a real API route. Whether
+    the local model would also pass this task is unmeasured; a local run of
+    `doc-summary-001` would answer it.

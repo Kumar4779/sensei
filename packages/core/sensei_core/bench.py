@@ -67,6 +67,9 @@ class BenchTask:
     task_dir: Path
     fixture_dir: Path
     checker: Path
+    # Slice 37: the workflow named by task.json ("brief", "doc_summary"). None = dispatch by task id,
+    # as every task before Slice 37 does (their frozen packages name no workflow).
+    workflow: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,8 +83,9 @@ class TrialOutcome:
     model: str | None = None
     error: str | None = None
     attempts: int = 1
-    # Failed trial's brief, held until write_results saves it as an artifact. Not in the JSON.
+    # Failed trial's output, held until write_results saves it as an artifact. Not in the JSON.
     artifact_text: str | None = field(default=None, repr=False)
+    artifact_name: str = "brief.md"
     # Extra fields a checker reports beyond its verdict (e.g. "echoed_payloads"); not graded.
     checker_extra: dict[str, Any] = field(default_factory=dict)
 
@@ -112,6 +116,9 @@ def load_task(task_dir: str | Path) -> BenchTask:
     if not fixture.is_dir():
         raise BenchError(f"fixture dir not found: {fixture}")
     budget = raw["budget"]
+    workflow = raw.get("workflow")
+    if workflow is not None and workflow not in WORKFLOW_KINDS:
+        raise BenchError(f"{d / 'task.json'} names unknown workflow {workflow!r}; expected one of {sorted(WORKFLOW_KINDS)}")
     return BenchTask(
         id=raw["id"],
         version=int(raw["version"]),
@@ -124,6 +131,7 @@ def load_task(task_dir: str | Path) -> BenchTask:
         task_dir=d,
         fixture_dir=fixture,
         checker=checker,
+        workflow=workflow,
     )
 
 
@@ -209,6 +217,29 @@ def run_brief_trial(inp: TrialInput, executor: Executor, trial: int = 1, repair:
 
 run_brief_trial.workflow_name = "brief+repair+assembled-inbox+scoped-prose"  # type: ignore[attr-defined]
 
+
+def run_doc_summary_trial(inp: TrialInput, executor: Executor, trial: int = 1, repair: bool = True) -> WorkflowResult:
+    """Workflow for document-summary tasks (Slice 37): summary.json from the fixture's source.md.
+    It never sees the checker or expected.json; run_benchmark grades its output."""
+    from sensei_core.doc_summary import build_summary, load_source
+
+    out = inp.work_dir / "summary.json"
+    try:
+        result = build_summary(executor, load_source(inp.fixture_dir), inp.instruction, out, inp.sensitivity,
+                               max_cost_usd=inp.max_cost_usd, max_retries=inp.max_retries, repair=repair)
+    except (BudgetExceeded, VerificationFailed) as e:
+        cost = getattr(e, "total_est_cost_usd", getattr(e, "accumulated_cost_usd", 0.0))
+        return WorkflowResult(None, None, cost, error=f"{type(e).__name__}: {e}")
+    except ManifestTamperError:
+        raise
+    except Exception as e:
+        return WorkflowResult(None, error=f"{type(e).__name__}: {e}")
+    return WorkflowResult(out, result.total_latency_ms, result.total_est_cost_usd, route=result.run.route,
+                          model=result.run.model, attempts=result.attempts)
+
+
+run_doc_summary_trial.workflow_name = "doc_summary+repair"  # type: ignore[attr-defined]
+
 Workflow = Callable[[TrialInput, Executor, int], WorkflowResult]
 # Keys are "<task id>" (any version) or "<task id>@v<version>" (that version only;
 # checked first). v1 and v2 of a task share an id; only their grading differs.
@@ -220,7 +251,14 @@ WORKFLOWS: dict[str, Workflow] = {
 }
 
 
+# Slice 37: workflows a task.json may name in its "workflow" field.
+WORKFLOW_KINDS: dict[str, Workflow] = {"brief": run_brief_trial, "doc_summary": run_doc_summary_trial}
+
+
 def workflow_for(task: BenchTask) -> Workflow | None:
+    """The task's own metadata decides; a task that names no workflow is looked up by id."""
+    if task.workflow is not None:
+        return WORKFLOW_KINDS[task.workflow]
     return WORKFLOWS.get(f"{task.id}@v{task.version}") or WORKFLOWS.get(task.id)
 
 
@@ -272,7 +310,7 @@ def grade(task: BenchTask, n: int, result: WorkflowResult) -> TrialOutcome:
     artifact = None if passed or not result.output.is_file() else result.output.read_text(encoding="utf-8")
     return TrialOutcome(
         n, passed, result.latency_ms, result.est_cost_usd, failed, route=result.route, model=result.model,
-        attempts=result.attempts, artifact_text=artifact,
+        attempts=result.attempts, artifact_text=artifact, artifact_name=result.output.name,
         checker_extra={k: v for k, v in report.items() if k not in ("task", "version", "passed", "checks")},
     )
 
@@ -337,7 +375,7 @@ def report_to_dict(report: BenchReport, artifacts: dict[int, str] | None = None)
 def write_results(report: BenchReport, out_dir: str | Path) -> Path:
     """Write <task-id>-v<version>-<YYYYMMDD>.json; never overwrite an earlier run.
 
-    Failed trials' briefs go to artifacts/<results stem>/trial-<n>/brief.md,
+    Failed trials' outputs go to artifacts/<results stem>/trial-<n>/<output name>,
     and each trial's "artifact" field holds that path relative to out_dir (or null).
     Bench fixtures are synthetic (DESIGN.md §4 Part 2, rule 4), so artifacts
     hold no real personal data.
@@ -356,7 +394,7 @@ def write_results(report: BenchReport, out_dir: str | Path) -> Path:
     for o in report.trials:
         if o.passed or o.artifact_text is None:
             continue
-        rel = Path("artifacts") / path.stem / f"trial-{o.trial}" / "brief.md"
+        rel = Path("artifacts") / path.stem / f"trial-{o.trial}" / o.artifact_name
         (out / rel).parent.mkdir(parents=True, exist_ok=True)
         (out / rel).write_text(o.artifact_text, encoding="utf-8")
         artifacts[o.trial] = rel.as_posix()
@@ -403,8 +441,9 @@ def format_summary(report: BenchReport, results_path: Path | None = None) -> str
 
 
 def main(argv: list[str] | None = None) -> int:
-    from sensei_core.clients import OllamaClient, OllamaUnavailable, choose_local_model
-    from sensei_core.config import load_models
+    from sensei_core.clients import KimiClient, OllamaClient, OllamaUnavailable, choose_local_model
+    from sensei_core.config import load_budgets, load_models
+    from sensei_core.egress import EgressLog
     from sensei_core.router import FakeClient, Router
 
     parser = argparse.ArgumentParser(prog="python -m sensei_core.bench", description="Run a SenseiBench task.")
@@ -439,17 +478,26 @@ def main(argv: list[str] | None = None) -> int:
     home = Path(os.environ.get("SENSEI_HOME", Path.home() / ".sensei"))
     trace = TraceWriter(home / "traces" / "bench.jsonl", run_id=f"bench-{task.id}-v{task.version}",
                         session_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
+    # Slice 37: cheap_api is the real Kimi backend (Slice 35), behind the same gates as the gateway:
+    # the shipped spend caps and the egress log. LOCAL_ONLY tasks never reach it.
+    kimi = KimiClient.for_route(routes["cheap_api"])
     executor = Executor(
         Router(routes, trace=trace),
         {
             "local_private": OllamaClient.for_route(routes["local_private"]),
-            "cheap_api": FakeClient("fake cheap_api response"),
+            "cheap_api": kimi,
             "frontier_api": FakeClient("fake frontier_api response"),
         },
         trace=trace,
+        egress=EgressLog(home / "egress.jsonl"),
+        budgets=load_budgets(),
     )
     report = run_benchmark(task, executor, trials=args.trials, claim=args.claim)
-    report = dataclasses.replace(report, settings={"local_private.think": routes["local_private"].think})
+    settings: dict[str, Any] = {"local_private.think": routes["local_private"].think}
+    if task.sensitivity == "API_OK":
+        settings.update({"cheap_api.model": kimi.model, "cheap_api.reasoning_effort": kimi.reasoning_effort,
+                         "cheap_api.max_completion_tokens": kimi.max_completion_tokens})
+    report = dataclasses.replace(report, settings=settings)
     path = write_results(report, out_dir)
     print(format_summary(report, path))
     return 0

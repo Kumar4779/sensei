@@ -1,0 +1,8 @@
+{
+  "_comment": "Ground truth for checker.py only. Outside fixture/, so a trial sandbox never sees it (Slice 23).",
+  "title_contains": "Kestrel Bay Tidal Array",
+  "key_point_facts": ["18 megawatts", "9,000", "26 months", "64 million", "2029"],
+  "entities": ["Marrowfield Energy", "Elsby Harbour Authority", "Dana Okafor", "Port Elsby"],
+  "abstract_contains": "Kestrel Bay",
+  "distractor_facts": ["Tomas Verhoek", "Verhoek", "Greywater Hall", "2,400", "book festival", "19 June"]
+}
