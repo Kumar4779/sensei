@@ -48,12 +48,14 @@ from sensei_core.permissions import Outcome, PermissionGate, ToolSpec
 from sensei_core.trace import TraceWriter
 
 from voice.adapters import FakeSTT, FakeTTS, ScriptedUtterance, SpeechToText, TextToSpeech
-from voice.confirm import ConfirmationMachine, State, UnverifiedAction
+from voice.confirm import ConfirmationMachine, EchoIncomplete, State, UnverifiedAction
 from voice.intents import (Clarify, Command, Memory, confirmed_params, is_low_confidence, parse_command,
-                           parse_confirmation, render_echo)
-from voice.world import VoiceTools, World, voice_tools
+                           parse_confirmation, render_echo, spoken_values)
+from voice.world import ToolFailed, VoiceTools, World, voice_tools
 
 SENSITIVITY_CLASS = "LOCAL_ONLY"  # a user's spoken commands are personal content
+ECHO_INCOMPLETE_REPLY = "I can't read that back completely, so I won't do it."
+TOOL_FAILED_REPLY = "That didn't work, so nothing was changed. I won't retry it automatically."
 
 
 def _ms(start: float, end: float) -> float:
@@ -94,7 +96,8 @@ class VoiceSession:
         self.tts = tts or FakeTTS()
         specs = specs if specs is not None else voice_tools()
         self.gate = PermissionGate(specs, trace)  # core's gate: the only permission decision
-        self.machine = ConfirmationMachine(trace)
+        # Every echo this loop presents must state every parameter value (Slice 3).
+        self.machine = ConfirmationMachine(trace, spoken=lambda tool, p: spoken_values(tool, p, self.world))
         self.tools = VoiceTools(self.world, self.machine, trace, specs)
         self.memory = Memory()
         self.pending: str | None = None  # the action awaiting yes/no
@@ -166,7 +169,10 @@ class VoiceSession:
                 record["confirmation"] = {"affirm": confirmation.affirm, "mentions": confirmation.mentions}
                 if not confirmation.affirm:
                     return "Okay, cancelled. Nothing was done.", "declined"
-                echo = self._propose_and_echo(Command(tool, params), record)
+                try:
+                    echo = self._propose_and_echo(Command(tool, params), record)
+                except EchoIncomplete:
+                    return ECHO_INCOMPLETE_REPLY, "refused"
                 return f"You interrupted me, so let me read that back again. {echo}", "re_echoed"
         if barge is not None and confirmation is not None and not confirmation.affirm and not self.pending:
             record["confirmation"] = {"affirm": False, "mentions": {}}
@@ -194,8 +200,15 @@ class VoiceSession:
         if decision.outcome is Outcome.HALT_FOR_APPROVAL:
             if not self.echo:
                 return self._execute_without_echo(command, record)
-            return self._propose_and_echo(command, record), "echoed"
-        result = self.tools.execute(command.tool, command.params)
+            try:
+                return self._propose_and_echo(command, record), "echoed"
+            except EchoIncomplete:
+                return ECHO_INCOMPLETE_REPLY, "refused"
+        try:
+            result = self.tools.execute(command.tool, command.params)
+        except ToolFailed as e:
+            record["execution"] = {"tool": command.tool, "error": str(e)}
+            return TOOL_FAILED_REPLY, "failed"
         if command.tool == "calendar_query":
             self.memory.last_event_ids = list(result.data["event_ids"])
         if command.tool == "take_note":
@@ -214,7 +227,7 @@ class VoiceSession:
     def _execute_without_echo(self, command: Command, record: dict[str, Any]) -> tuple[str, str]:
         """Ablation arm only: what an agent without the echo does. It acts on the transcript as heard."""
         action = self.machine.propose(command.tool, command.params)
-        self.machine.echo(action.action_id, lambda tool, p: "(not spoken: echo off)")
+        self.machine.echo(action.action_id, lambda tool, p: "(not spoken: echo off)", presented=False)
         self.machine.confirm(action.action_id, action.echoed_params or {}, source="ablation_auto")
         record.update(action_id=action.action_id, proposed={"tool": command.tool, "params": command.params})
         result = self.tools.execute(action.tool, action.echoed_params or {}, action.receipt)
@@ -224,8 +237,10 @@ class VoiceSession:
     def _confirm(self, confirmation: Any, record: dict[str, Any]) -> tuple[str, str]:
         if self.pending is None:
             if confirmation.affirm and self.last_action is not None:
-                self.machine.confirm(self.last_action, self.machine.get(self.last_action).echoed_params or {})
+                last = self.machine.confirm(self.last_action, self.machine.get(self.last_action).echoed_params or {})
                 record["action_id"] = self.last_action
+                if last.state is State.FAILED:
+                    return "That didn't work earlier, and I won't retry it automatically.", "already_done"
                 return "That's already done. I won't do it twice.", "already_done"
             if confirmation.affirm:
                 return "There's nothing waiting for your confirmation.", "nothing_to_confirm"
@@ -247,6 +262,9 @@ class VoiceSession:
             result = self.tools.execute(action.tool, echoed, action.receipt)
         except UnverifiedAction:
             return "I couldn't verify that action, so it did not run.", "blocked"
+        except ToolFailed as e:
+            record["execution"] = {"tool": action.tool, "error": str(e)}
+            return TOOL_FAILED_REPLY, "failed"
         record["execution"] = {"tool": action.tool, "result": result.data}
         return result.reply, "executed"
 

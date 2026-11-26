@@ -16,7 +16,7 @@ segments had been heard. TTS.stop records where playback was cut off.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 
@@ -27,6 +27,7 @@ class ScriptedUtterance:
     transcript: str
     confidence: float = 0.95
     barge_in_after: int | None = None  # segments of the previous reply heard before the user spoke
+    audio: bytes = field(default=b"", repr=False)  # the captured audio (Slice 3); dropped by the STT, never kept
 
 
 @dataclass(frozen=True)
@@ -57,10 +58,12 @@ class TextToSpeech(Protocol):
 
 class FakeSTT:
     name = "fake-stt"
+    audio_bytes_seen = 0
 
     def transcribe(self, utterance: ScriptedUtterance) -> Transcript:
         if not 0.0 <= utterance.confidence <= 1.0:
             raise ValueError(f"confidence must be in [0, 1], got {utterance.confidence}")
+        self.audio_bytes_seen = len(utterance.audio)  # a count, for tests; the bytes themselves are not kept
         return Transcript(utterance.transcript, utterance.confidence)
 
 

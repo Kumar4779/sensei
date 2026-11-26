@@ -794,3 +794,123 @@ way as every other task: final state, never transcripts.
   - That is the first bench-scale disagreement on a real API route. Whether
     the local model would also pass this task is unmeasured; a local run of
     `doc-summary-001` would answer it.
+
+## Permission-aware retrieval: corpus, ACL pre-filter, flat answering (GraphRAG Slice 1, #5)
+
+Flagship 4, the Permission-Aware GraphRAG Verifier, starts as
+`packages/graphrag`, Sensei's knowledge module (commit 8819484). The governing
+spec is `specs/graphrag-verifier.md`, committed in 5995ed1.
+
+- **Corpus v1, frozen.** A fictional company is generated from a fixed seed
+  (`20261128`): 180 documents, 5 groups and 3 tiers (public 56, internal 69,
+  restricted 55), with an explicit ACL on every document.
+  - 10 canary documents (2 per group) each hold a unique fake secret, so a
+    leak is a string match.
+  - The generator scales to ~500 documents without changes, and the committed
+    corpus regenerates byte for byte on Python 3.11, 3.12 and 3.13.
+  - Ground truth (canaries and probe questions) lives in `evals/v1/`, apart
+    from the corpus, and the answering code never reads it.
+- **Chunks carry their labels.** All 240 chunks carry `doc_id`, tier, ACL
+  groups and a canary flag.
+- **The ACL filter is inside the retrieval query.** Retrieval partitions the
+  chunks by the requester's groups before any scoring. BM25 (with IDF over the
+  permitted partition only), dense scoring and fusion never see a chunk the
+  requester can't read. It is a pre-filter in code, not a post-filter or a
+  prompt.
+- **Flat answering.** A CLI answers extractively: every claim is a retrieved
+  sentence cited by chunk ID, and it abstains when no permitted sentence
+  supports the question.
+- **Tests:**
+  - Gate tests are asserted on the retrieved chunk set. For every canary,
+    every unauthorized role and four attack shapes, at k=5 and k=50, no chunk
+    outside the role's access is retrieved.
+  - Positive controls: all 253 entitled (probe, role) pairs retrieve their
+    document.
+  - Smoke test: as Sales, an HR canary attacked by direct ask, paraphrase and
+    role-play retrieves 0 HR chunks and abstains each time, and an entitled
+    Sales question is answered with a correct citation.
+  - Disabling the gate fails 10 tests. 35 pass, with 1 strict xfail.
+- **A known failure, published as that strict xfail.** A near-miss (a common
+  region name that the lexical support rule can't tell apart) can be answered
+  with another region's policy. It is a correctness failure, not a leak, and
+  is assigned to the verifier slice.
+
+## Voice Lab: package scaffold, task set v1, confirmation-echo gate (Voice Lab Slice 1, #7)
+
+Flagship 5, the Voice Agent Reliability Lab, starts as `packages/voice`,
+Sensei's voice module (commit 5adf4df). The governing spec is
+`specs/voice-lab.md`, committed in 0322b13. Input is transcript-first, with
+fake STT/TTS adapters: no audio, no API keys, no network.
+
+- **Task set `voice-bench-v1`, frozen.** 20 scripted tasks (10 positive
+  controls, 10 safety cases) with deterministic end states checked in code.
+  The version is recorded in the data, and a test pins its SHA-256.
+- **The confirmation-echo state machine.** Irreversible tools (send / pay /
+  delete / submit / approve) move `proposed → echoed → confirmed → executed`:
+  - the echo freezes the exact parameters;
+  - a confirmation must match them exactly;
+  - execution redeems a single-use receipt inside the tool layer;
+  - a second yes is a traced no-op.
+- **No second gate.** Core's `PermissionGate` decides every call from a voice
+  manifest in core's format. For irreversible tools it returns
+  `HALT_FOR_APPROVAL`, and the echo resolves it. Traces use core's
+  `TraceWriter`, one `voice_turn` record per turn, and audio is never stored.
+- **The action-safety hard gate is checked from the trace** in code, with no
+  model.
+- **Tests: 58**, including the spec's smoke tests (a)–(e). Bypassing the echo
+  fails 24 of them.
+
+## Voice Lab: interruption, eval harness v1, the echo ablation (Voice Lab Slice 2, #9)
+
+Commit cf7f608.
+
+- **Interruption.** Barge-in is a traced event with its timestamp, point
+  (mid-answer / mid-echo / mid-listing) and the segments heard. The agent
+  stops, never speaks the unheard rest, and re-plans.
+- **The stale-plan guard, in code.** `ConfirmationMachine.interrupt()` makes
+  every in-flight echo or confirmation stale. Confirming or redeeming one is a
+  hard-gate violation, and the verifier fails any trace that confirms or
+  executes across a barge-in. A yes spoken over an echo re-issues the echo.
+- **A new frozen probe set, `voice-interrupt-v1`:** 9 tasks across the 3
+  points. voice-bench-v1 is unchanged.
+- **Eval harness v1, at k=3:**
+  - four suites: correctness, action safety (the hard gate over every trial),
+    interruption, and latency (transcript path, fake adapters);
+  - exactly one taxonomy label per failure, and a failure no rule covers
+    raises instead of being dropped.
+- **The ablation, echo ON vs OFF.**
+  - OFF fails the hard gate: 18/30 safety trials fail, 15 of them with real
+    harm.
+  - ON has 0 failures, and costs exactly 1 extra turn per irreversible
+    action.
+  - These are dev numbers.
+- **Tests: 88.**
+
+## Voice Lab: salvage hardening and voice-bench-v2 (Voice Lab Slice 3, #11)
+
+These ideas were salvaged from a parallel, unmerged build of Slice 1 (closed
+as #6, a duplicate) and rewritten for the merged code; nothing was copied
+wholesale.
+
+- **Echo-completeness, enforced in code.** Before an echo is presented, the
+  machine checks that it states every parameter value in its spoken form
+  (`spoken_values`, derived from the World, independently of the echo
+  template). A missing value raises `EchoIncomplete`, and the action is
+  declined, never presented.
+- **A FAILED path.** A tool that raises is traced as `tool_failed`
+  (`retried: false`). An irreversible action moves `executed → failed`, and a
+  later yes, or a replay of the spent receipt, never re-runs it.
+- **Audio bytes.** FakeSTT accepts the captured audio and drops it, and a test
+  checks that marked bytes reach no trace record in any encoding.
+- **`voice-bench-v2`, a new eval version** with 10 tasks:
+  - `said` vs `heard` per turn, so "misheard" is labelled from data;
+  - exact per-tool call counts;
+  - fixture overrides;
+  - probes for an injection before the command, "fifteen" heard as "fifty",
+    "approve it" with two pending, and the Alex/Alec homophone.
+- **v2 dev numbers at k=3:** pass^3 0.80, and the hard gate PASS over all 117
+  runs. Two labelled failures, both over-clarification: the injection prefix
+  hides the command, and teen amounts don't parse. They are filed as #12 and
+  not patched here.
+- **Tests: 116,** the 88 existing plus 28 new. Disabling echo-completeness
+  fails 10 of the new tests, and disabling FAILED fails 2.
