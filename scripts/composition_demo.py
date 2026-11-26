@@ -6,7 +6,8 @@ Everything goes through the real components, in order:
   1. start the gateway (scratch Sensei home, fresh token)
   2. propose a memory entry through the Custodian MCP server (stdio, real SDK client)
   3. POST /brief/run on the morning-brief-001 fixture; it must come back verified
-  4. the MacPilot leg: run what packages/macpilot actually provides
+  4. the MacPilot leg: run MacPilot's own Slice 1 demo task (python -m macpilot.demo, in its
+     own virtualenv); it counts only if MacPilot's audit log shows goal_reached
   5. publish the UI to the tailnet (tailscale serve), print the phone URL, and WAIT until
      the gateway's trace shows memory_confirmed for the proposed entry
   6. kill-switch test: /kill -> /run must be 503 -> /revive
@@ -95,21 +96,26 @@ def format_summary(claims: list[Claim]) -> str:
     return "\n".join(lines)
 
 
-# ---- MacPilot: inspect what exists, never fake a result ---------------------------------
+# ---- MacPilot: run its own demo task, never fake a result ------------------------------
 
 
-def macpilot_capability(root: Path = MACPILOT) -> dict[str, Any]:
-    """What packages/macpilot can actually do today, from its files."""
-    # The package's own files only: never its virtualenv, caches or build output.
-    skip = {"__pycache__", "build", "dist", "node_modules"}
-    files = sorted(
-        str(p.relative_to(root)) for p in root.rglob("*")
-        if p.is_file()
-        and not any(part.startswith(".") or part in skip or part.endswith(".egg-info")
-                    for part in p.relative_to(root).parts[:-1])
-    )
-    code = [f for f in files if f.endswith((".py", ".swift", ".js", ".ts"))]
-    return {"files": files, "code_files": code, "runnable": bool(code)}
+def macpilot_run(out_dir: Path, data_dir: Path, root: Path = MACPILOT) -> tuple[int, str]:
+    """Run MacPilot's Slice 1 demo task through its own CLI and virtualenv (it needs Playwright,
+    which the core venv does not have). Returns (exit code, output)."""
+    python = root / ".venv" / "bin" / "python"
+    if not python.is_file():
+        return -1, f"{python} not found; set up packages/macpilot (see its README)"
+    r = subprocess.run([str(python), "-m", "macpilot.demo", "--out", str(out_dir), "--data-dir", str(data_dir)],
+                       cwd=root, capture_output=True, text=True, timeout=180)
+    return r.returncode, r.stdout + r.stderr
+
+
+def macpilot_goal_lines(audit: Path) -> list[str]:
+    """MacPilot's own audit-log lines recording goal_reached: the only evidence the leg counts."""
+    if not audit.is_file():
+        return []
+    return [ln.strip() for ln in audit.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and json.loads(ln).get("outcome") == "goal_reached"]
 
 
 # ---- talking to the gateway -------------------------------------------------------------
@@ -227,11 +233,10 @@ def main(argv: list[str] | None = None) -> int:
         status, brief = gw.call("POST", "/brief/run")
         print(f"3. /brief/run -> HTTP {status}, verified={brief.get('verified') if isinstance(brief, dict) else None}")
 
-        mp = macpilot_capability()
-        notes["macpilot"] = (f"packages/macpilot holds {mp['files']} and no code "
-                             f"({len(mp['code_files'])} code files), so it can do nothing yet: "
-                             "no browser task and no perception step to run."
-                             if not mp["runnable"] else f"code files present: {mp['code_files']}")
+        mp_out = home / "macpilot"
+        mp_code, mp_output = macpilot_run(mp_out, home / "macpilot-data")
+        last = mp_output.strip().splitlines()[-1] if mp_output.strip() else "(no output)"
+        notes["macpilot"] = f"python -m macpilot.demo exited {mp_code}: {last}"
         print(f"4. MacPilot leg: {notes['macpilot']}")
 
         url, ts_added, phone_ip, ts_note = tailscale_publish(args.port)
@@ -274,7 +279,10 @@ def main(argv: list[str] | None = None) -> int:
     claims.append(Claim("Morning brief generated and verified (morning-brief-001 fixture)",
                         cite(brief_ev, "gateway trace")))
 
-    claims.append(Claim("MacPilot leg completed", [], notes["macpilot"]))
+    mp_audit = mp_out / "audit.jsonl"
+    claims.append(Claim("MacPilot leg: grounded click on the fixture page, goal state reached",
+                        [f"macpilot audit log {mp_audit}: {l}" for l in macpilot_goal_lines(mp_audit)]
+                        if mp_code == 0 else [], notes["macpilot"]))
 
     confirmed = find_event(events, "memory_confirmed", entry_id=entry["id"])
     phone_lines = phone_access_lines(access_log, phone_ip if url else None, "/memory/confirm")
@@ -305,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(format_summary(claims))
     print(f"records kept in {home} (gateway trace, custodian trace, access log)")
-    return 0 if all(c.done for c in claims if not c.text.startswith("MacPilot")) else 1
+    return 0 if all(c.done for c in claims) else 1
 
 
 if __name__ == "__main__":

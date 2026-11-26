@@ -32,13 +32,18 @@ def test_a_claim_without_evidence_is_reported_not_done():
     assert "1/2 claims proven by the trace." in out
 
 
-def test_macpilot_inspection_reports_what_exists(tmp_path):
-    real = demo.macpilot_capability()
-    # MacPilot Slice 1 added code; its virtualenv and caches are not counted as MacPilot's code.
-    assert real["runnable"] is True and "macpilot/actor.py" in real["code_files"] and "README.md" in real["files"]
-    assert not any(f.startswith((".venv", "build")) or "__pycache__" in f or ".egg-info" in f for f in real["files"])
-    (tmp_path / "pilot.py").write_text("print('hi')\n")
-    assert demo.macpilot_capability(tmp_path)["runnable"] is True
+def test_macpilot_leg_counts_only_goal_reached_audit_lines(tmp_path):
+    audit = tmp_path / "audit.jsonl"
+    assert demo.macpilot_goal_lines(audit) == []  # no audit log, no evidence
+    audit.write_text('{"step": 1, "outcome": "goal_not_reached"}\n{"step": 1, "outcome": "error"}\n')
+    assert demo.macpilot_goal_lines(audit) == []
+    audit.write_text('{"step": 1, "outcome": "goal_reached", "stop_condition": "the page shows \'Clicked\'"}\n')
+    assert demo.macpilot_goal_lines(audit) == [audit.read_text().strip()]
+
+
+def test_macpilot_run_without_its_venv_reports_instead_of_faking(tmp_path):
+    code, out = demo.macpilot_run(tmp_path / "out", tmp_path / "data", root=tmp_path)
+    assert code == -1 and "not found" in out and not (tmp_path / "out" / "audit.jsonl").exists()
 
 
 def test_phone_lines_only_count_the_phones_ip(tmp_path):
