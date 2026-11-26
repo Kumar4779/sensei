@@ -79,7 +79,9 @@ evals/               SenseiBench tasks, checkers and published results
 
 The full design, including the threat model and eval design, is in
 [DESIGN.md](DESIGN.md). The engineering bar every component must meet is in
-[STANDARDS.md](STANDARDS.md). Each component's README states its status;
+[STANDARDS.md](STANDARDS.md). How much Sensei does on its own, per
+capability, and the evidence each needs to earn more, is in
+[TRUST_LADDER.md](TRUST_LADDER.md). Each component's README states its status;
 to contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## SenseiBench

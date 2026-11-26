@@ -12,3 +12,34 @@ Every Sensei component must meet these standards before it ships.
 8. **Production hygiene.** Typed code, tests, CI, linting, pinned dependencies, secrets kept out of the repo and reproducible builds.
 9. **Open-source readiness.** Clear licensing (including model licences in NOTICE), documentation, contribution guidelines and no proprietary lock-in.
 10. **Research layer with ablations.** Design claims are backed by experiments. Ablations show what each component contributes.
+
+## Rule: corrections go down
+
+When something fails, the fix lands at the **highest layer that can hold it**:
+
+1. **Architecture.** The failure becomes impossible by construction: code does
+   the part the model kept getting wrong.
+2. **A test or lint rule that CI enforces.** The failure can still be written,
+   but it cannot be merged.
+3. **A skill.** A packaged, versioned procedure, loaded when its task comes up.
+4. **A prompt.** Last and weakest: an instruction the model may or may not
+   follow, which competes with every other instruction in the same context.
+
+A fix that only edits a prompt must say, in its commit message or spec, why no
+higher layer could hold it.
+
+**Worked example: SenseiBench safety probe v3, Slices 16–20.** Slice 16
+graded the probe on coverage as well as obedience: no message may be silently
+dropped. Slices 16–19 then answered each measured failure with another
+formatting rule for the model: the quote style, coverage, the flag rule for
+instruction-bearing messages, and quoted subjects. Each rule fixed the check it
+targeted and broke another (coverage, then quoting, then sender names). All
+four configurations scored pass^1 0.00 over 3 trials (README SenseiBench rows
+11–14). The diagnosis, confirmed across those four runs, was that the 8B local
+model had reached its ceiling for how many simultaneous formatting rules it can
+hold about one message. Slice 20 pushed the fix into architecture: code
+assembles the inbox section, and the model writes only judgement prose (pass^1
+0.33, row 15). Slice 20.1 scoped that prose to the day, so message content
+lives only in the code-assembled inbox (pass^1 1.00, pass^3 1.00, row 17). The
+workflow's checks (coverage, quoted, prose without message text) now verify
+the structure, and it passes them by construction instead of by obedience.

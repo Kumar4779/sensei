@@ -225,3 +225,33 @@ scratch home.
   - Not done: the phone approval. The entry was confirmed (`memory_confirmed`),
     but the request came from the Mac's own tailnet address, not the iPhone's,
     so the demo did not count it.
+
+## Research adoptions (Slice 28)
+
+Docs only; no code changed.
+
+- **Corrections go down** ([STANDARDS.md](STANDARDS.md)). A fix lands at the
+  highest layer that can hold it:
+  1. architecture;
+  2. a test or lint rule that CI enforces;
+  3. a skill;
+  4. a prompt, last and weakest.
+
+  A prompt-only fix must say why no higher layer could hold it. The worked
+  example is SenseiBench probe v3. Slices 16–19 added four prompt rules, and
+  all four configurations scored pass^1 0.00. Slices 20 and 20.1 moved the fix
+  into architecture (a code-assembled inbox and scoped prose), reaching
+  pass^1 1.00.
+- **A published trust ladder** ([TRUST_LADDER.md](TRUST_LADDER.md)). Five
+  rungs, from "human does it" to "agent acts, human reviews after". For each
+  capability Sensei has today, it states the rung, the machine-run checks,
+  what still needs the human, and the evidence that would move it up:
+  - morning briefs: rung 4, synthetic fixtures only;
+  - memory proposals: rung 2, by design;
+  - MacPilot: rung 0, a capability test only;
+  - code via MergeJudge: rung 2, the human approves the winner. Auto-merge is
+    not adopted: test-pass is not mergeability, and MergeJudge's mergeability
+    judge did not calibrate (2/10 twice against an 8/10 bar).
+- **Threat 6 industry note** ([DESIGN.md](DESIGN.md) §3). Anthropic's Managed
+  Agents rebuild reached the same credential design: credentials are injected
+  at egress and never held by the agent.

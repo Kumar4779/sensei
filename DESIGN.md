@@ -289,6 +289,12 @@ Residual risk: the broker and the Mac are the high-value targets; a
 fully compromised machine defeats most of this. The design goal is
 that compromising the agent yields no keys.
 
+Industry note: Anthropic's rebuild of its Managed Agents platform arrived
+at the same credential design. Credentials are injected at the egress
+boundary and are never held by the agent. Its first version had failed,
+in part, on where credentials were placed (Katelyn Lesse, The Pragmatic
+Engineer, 2026). This is independent support for defences (1) and (5).
+
 ### Threat 7 — Runaway loops and cost
 
 Threat: agents loop — stuck retries, endless re-planning, tools
