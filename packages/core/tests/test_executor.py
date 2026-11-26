@@ -46,7 +46,8 @@ def test_api_ok_simple_completes_via_cheap_api(trace):
     assert result.route == "cheap_api"
     assert result.response == "cheap answer"
     assert result.escalated is False
-    assert event_types(trace) == ["manifests_loaded", "run_started", "route_decision", "model_call", "run_completed"]
+    assert event_types(trace) == ["manifests_loaded", "run_started", "route_decision", "shadow_decision",
+                                  "model_call", "run_completed"]
 
 
 def test_local_only_never_touches_api_clients(trace):
@@ -70,6 +71,7 @@ def test_cheap_failure_escalates_to_frontier(trace):
         "manifests_loaded",  # Slice 24
         "run_started",
         "route_decision",
+        "shadow_decision",  # Slice 30: one per run, after the first routing decision
         "route_failure",  # Slice 23
         "route_decision",
         "run_escalated",

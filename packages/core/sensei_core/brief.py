@@ -369,7 +369,7 @@ def build_brief(
         return assemble_brief(response, data) if assemble_inbox else response
 
     # Slice 29: the draft and the repair are one run for loop detection.
-    with executor.run_scope():
+    with executor.run_scope(task_family="morning_brief"):
         run = executor.run_once(
             first_prompt(data), sensitivity, "simple", max_cost_usd=max_cost_usd, max_retries=max_retries
         )

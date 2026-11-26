@@ -32,6 +32,7 @@ from typing import Any, Callable
 from sensei_core.brief import build_brief, load_morning_fixture
 from sensei_core.executor import BudgetExceeded, Executor, VerificationFailed
 from sensei_core.manifests import ManifestTamperError
+from sensei_core.trace import TraceWriter
 
 
 class BenchError(RuntimeError):
@@ -297,7 +298,8 @@ def run_benchmark(
             cwd = os.getcwd()
             os.chdir(inp.work_dir)  # the workflow's world is its sandbox
             try:
-                result = workflow(inp, executor, n)
+                with executor.run_scope(task_family=f"{task.id}@v{task.version}"):  # Slice 30
+                    result = workflow(inp, executor, n)
             finally:
                 os.chdir(cwd)
             outcomes.append(grade(task, n, result))
@@ -432,13 +434,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"note: {note}")
     # Record the model that actually answers, so results stay truthful.
     routes["local_private"] = dataclasses.replace(routes["local_private"], model=model)
+    # Slice 30: bench runs are traced, so shadow_decision events accumulate the agreement
+    # record (route and model-call events too; never prompt or response text).
+    home = Path(os.environ.get("SENSEI_HOME", Path.home() / ".sensei"))
+    trace = TraceWriter(home / "traces" / "bench.jsonl", run_id=f"bench-{task.id}-v{task.version}",
+                        session_id=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     executor = Executor(
-        Router(routes),
+        Router(routes, trace=trace),
         {
             "local_private": OllamaClient.for_route(routes["local_private"]),
             "cheap_api": FakeClient("fake cheap_api response"),
             "frontier_api": FakeClient("fake frontier_api response"),
         },
+        trace=trace,
     )
     report = run_benchmark(task, executor, trials=args.trials, claim=args.claim)
     report = dataclasses.replace(report, settings={"local_private.think": routes["local_private"].think})

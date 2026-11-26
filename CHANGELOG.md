@@ -318,3 +318,51 @@ spend caps are enforced, and loops are detected.
   - There are no step budgets yet.
   - The caps re-read the trace on each API call, which is fine at today's
     trace sizes.
+
+## Shadow router (Slice 30)
+
+Shadow verification, applied to routing: a new policy earns trust from a
+measured agreement record before it is ever allowed to decide.
+
+- **The policy, `cheapest-eligible-v1`** (`shadow.py`). It takes the same
+  inputs the Router sees: sensitivity, difficulty, prior failures and prompt
+  size.
+  1. **Eligible routes are those the rules allow,** and the shadow inherits
+     every hard guardrail:
+     - The route's sensitivity list must contain the class: the Router's
+       own `RoutingError` check.
+     - LOCAL_ONLY additionally requires a local-tier route.
+     - Hard API_OK work is frontier-tier only.
+     - After a failure, only the rules' route or `frontier_api` (no silent
+       fallback, Slice 23).
+  2. **Among those, it picks the lowest estimated input cost,** using
+     `est_cost_per_1k_tokens` from `models.toml`: the field the rules Router
+     ignores. Ties go to the rules' route, then to the route name.
+- **It decides on every run and never executes.** After the Router's first
+  decision in each Executor run, the shadow decides too. The executor traces
+  one `shadow_decision`:
+  - policy and task family;
+  - the inputs (sensitivity, difficulty, prior failures, prompt size);
+  - `rules_route`, `shadow_route` and `agree`;
+  - the eligible set, and each route's estimated input cost.
+
+  The shadow's choice is never called and makes no model call. A shadow error
+  is traced as `shadow_error` and never reaches the real run.
+- **The report:** `python -m sensei_core.shadow_report [PATH ...]`. It is
+  read-only; the default is every trace under `$SENSEI_HOME/traces`. It
+  prints, per task family and overall:
+  - runs;
+  - the agreement rate;
+  - the summed estimated cost difference had the shadow decided (shadow minus
+    rules).
+- **The bench is now traced.** `python -m sensei_core.bench` writes
+  `$SENSEI_HOME/traces/bench.jsonl`, where it had no trace before. Each trial
+  runs in a scope named `<task id>@v<version>`, so its shadow decisions carry
+  the task family. Grading, tasks and checkers are unchanged.
+- **What the record will show first:** every SenseiBench task today is
+  LOCAL_ONLY, where the only eligible route is local. The bench record will
+  therefore read 100% agreement and $0 difference by construction; it measures
+  nothing yet about cost. The shadow disagrees with the rules only on API_OK
+  simple and standard work, where it picks the free local route over
+  `cheap_api`. Whether local is good enough there is the open question this
+  record is meant to answer, once API_OK tasks exist.

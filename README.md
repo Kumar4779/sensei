@@ -77,6 +77,10 @@ evals/               SenseiBench tasks, checkers and published results
   and every model call checks it. Optional daily and monthly spend caps refuse
   an API call before it is sent, with alerts at 50% and 80% of the daily cap. A
   run that repeats the same successful call a third time halts.
+- **New policies earn trust in shadow first.** A cost-aware router decides
+  alongside the rules Router on every run, inside the same guardrails, but only
+  the rules decision executes. `python -m sensei_core.shadow_report` prints the
+  agreement record and what the shadow would have saved or cost.
 - **Memory is inspectable files.** Writes are gated, provenance is recorded,
   deletion is provable, and the store is shared with MCP clients through the
   Custodian, which can propose entries but never activate them.

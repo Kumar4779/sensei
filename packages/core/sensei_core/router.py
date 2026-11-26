@@ -53,6 +53,11 @@ class Router:
         self._routes = dict(routes)
         self._trace = trace
 
+    @property
+    def routes(self) -> dict[str, Route]:
+        """A copy of the routing table (the shadow router reads it; Slice 30)."""
+        return dict(self._routes)
+
     def route(self, name: str) -> Route:
         """Return the configured route by name (KeyError if unknown)."""
         return self._routes[name]

@@ -25,6 +25,8 @@ from sensei_core.killswitch import KillSwitch, KillSwitchEngaged
 from sensei_core.ledger import CostLedger
 from sensei_core.manifests import ManifestGuard, ManifestTamperError
 from sensei_core.router import ModelClient, RouteDecision, RouteRequest, Router, RoutingError
+from sensei_core.shadow import COST_BASIS as SHADOW_COST_BASIS
+from sensei_core.shadow import ShadowPolicy, est_input_cost
 from sensei_core.trace import TraceWriter, read_events
 from sensei_core.verifier import Check, VerificationReport, Verifier
 
@@ -130,22 +132,56 @@ class Executor:
             raise ValueError("spend caps need a trace: it is the cost ledger they are checked against")
         self._kill_switch = kill_switch
         self._scope = threading.local()  # per-thread: the gateway serves requests concurrently
+        # Slice 30: decides on every run in shadow; never executed, never calls a model.
+        self.shadow = ShadowPolicy(router.routes)
 
     @contextmanager
-    def run_scope(self) -> Iterator[None]:
+    def run_scope(self, task_family: str | None = None) -> Iterator[None]:
         """One run for loop detection. Calls inside share a count of successful identical calls.
 
         A multi-call workflow (a brief's draft and repair, an agent loop) wraps its calls in one
-        scope; run_once opens its own scope when none is active. Nested scopes join the outer one.
+        scope; run_once opens its own scope when none is active. Nested scopes join the outer one,
+        and keep its task_family (recorded on shadow decisions; the bench sets the task id).
         """
         if getattr(self._scope, "counts", None) is not None:
             yield
             return
         self._scope.counts = Counter()
+        self._scope.family = task_family
         try:
             yield
         finally:
             self._scope.counts = None
+            self._scope.family = None
+
+    def _shadow(self, request: RouteRequest, rules: RouteDecision, prompt: str) -> None:
+        """Trace what the shadow policy would have chosen. It must never affect the run."""
+        if self._trace is None:
+            return
+        try:
+            shadow = self.shadow.decide(request, rules, len(prompt))
+            rules_cost = est_input_cost(self._router.route(rules.route), len(prompt))
+        except Exception as error:  # a shadow bug is recorded, never raised into the real run
+            self._event("shadow_error", {"policy": self.shadow.name, "error_class": type(error).__name__})
+            return
+        self._event(
+            "shadow_decision",
+            {
+                "policy": self.shadow.name,
+                "task_family": getattr(self._scope, "family", None),
+                "sensitivity_class": request.sensitivity_class,
+                "difficulty": request.difficulty,
+                "prior_failures": request.prior_failures,
+                "prompt_chars": len(prompt),
+                "rules_route": rules.route,
+                "shadow_route": shadow.route,
+                "agree": shadow.route == rules.route,
+                "eligible": list(shadow.eligible),
+                "rules_est_cost_usd": rules_cost,
+                "shadow_est_cost_usd": shadow.est_cost_usd,
+                "cost_basis": SHADOW_COST_BASIS,
+            },
+        )
 
     def _event(self, event_type: str, payload: dict) -> None:
         if self._trace is not None:
@@ -197,7 +233,9 @@ class Executor:
         )
         spent = 0.0
         try:
-            first = decision = self._router.decide(RouteRequest(sensitivity_class, difficulty))
+            request = RouteRequest(sensitivity_class, difficulty)
+            first = decision = self._router.decide(request)
+            self._shadow(request, first, prompt)  # Slice 30: one shadow decision per run
             failures = 0
             while True:
                 try:
