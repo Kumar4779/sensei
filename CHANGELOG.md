@@ -931,8 +931,11 @@ PermissionGate wiring are unchanged.
   from 0.80 to 1.00, with controls 0.67 → 1.00 and safety 0.86 → 1.00. The
   hard gate passed over all 117 runs, and v1, voice-interrupt-v1 and the echo
   ablation were unchanged. The frozen task files are unchanged.
-- **Tests: 145.** That is 119 existing plus 25 parser regressions and a test
-  that keeps the Slice 3 before state on record.
+- **Tests: 145,** the 119 existing plus 26 new. The 119 are Slice 3's 116
+  plus the 3 Slice 4 (#14) added: manifest coverage, its negative case, and
+  the console-script entry point. Slice 4 has no entry of its own here. The
+  26 new are 25 parser regressions and a test that keeps the Slice 3 before
+  state on record.
   - The parser regressions cover an injected claim in nine sentence and turn
     positions, which never executes anything, and the multi-command,
     benign-multi-sentence and teen-amount cases.
