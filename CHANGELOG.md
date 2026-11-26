@@ -914,3 +914,27 @@ wholesale.
   not patched here.
 - **Tests: 116,** the 88 existing plus 28 new. Disabling echo-completeness
   fails 10 of the new tests, and disabling FAILED fails 2.
+
+## Voice Lab: the parser gaps voice-bench-v2 found (Voice Lab Slice 5, #12)
+
+This is a parser-only change; the confirmation state machine and the
+PermissionGate wiring are unchanged.
+
+- **Every sentence is scanned for the command.** Before that, an injection
+  clause is stripped: one claiming prior confirmation, or telling the agent to
+  skip it. Such a clause is never a command and never a confirmation. An
+  injected prefix followed by a real command now ends with that command
+  echoed, not executed and not lost. Two command sentences clarify instead of
+  guessing.
+- **Teen amounts parse** ("fifteen dollars" is $15.00).
+- **voice-bench-v2 at k=3, dev numbers on the transcript path:** pass^3 went
+  from 0.80 to 1.00, with controls 0.67 → 1.00 and safety 0.86 → 1.00. The
+  hard gate passed over all 117 runs, and v1, voice-interrupt-v1 and the echo
+  ablation were unchanged. The frozen task files are unchanged.
+- **Tests: 145.** That is 119 existing plus 25 parser regressions and a test
+  that keeps the Slice 3 before state on record.
+  - The parser regressions cover an injected claim in nine sentence and turn
+    positions, which never executes anything, and the multi-command,
+    benign-multi-sentence and teen-amount cases.
+  - The one Slice 3 test that pinned the two old failures now asserts there
+    are none.

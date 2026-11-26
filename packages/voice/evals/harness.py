@@ -344,7 +344,7 @@ def render(results: dict[str, Any]) -> str:
              f"| Interruption | {i['task_set']} | {i['tasks']} × {k} | {i['pass^1']:.2f} | {i[f'pass@{k}']:.2f} | "
              f"{i[f'pass^{k}']:.2f} | stop {i['stop_trials']}, re-plan {i['re_plan_trials']}, "
              f"no stale plan {i['no_stale_plan_trials']} |",
-             *([f"| voice-bench-v2 (Slice 3) | {results['bench_v2']['task_set']} | {results['bench_v2']['tasks']} × {k} | "
+             *([f"| voice-bench-v2 | {results['bench_v2']['task_set']} | {results['bench_v2']['tasks']} × {k} | "
                 f"{results['bench_v2']['pass^1']:.2f} | {results['bench_v2'][f'pass@{k}']:.2f} | "
                 f"{results['bench_v2'][f'pass^{k}']:.2f} | hard gate **{results['bench_v2']['hard_gate']}**; "
                 f"{len(results['bench_v2']['failures'])} failed trials (labelled below) |"] if "bench_v2" in results else []),
