@@ -1,0 +1,22 @@
+{
+  "company": "Larkspur Robotics",
+  "corpus_version": "v1",
+  "seed": 20261128,
+  "sha256": "3ba448dac552dabca31f6e64169f7ddc8e20bcf52e760873f17778775aa731be",
+  "stats": {
+    "by_department": {
+      "engineering": 36,
+      "exec": 36,
+      "finance": 36,
+      "hr": 36,
+      "sales": 36
+    },
+    "by_tier": {
+      "internal": 69,
+      "public": 56,
+      "restricted": 55
+    },
+    "canaries": 10,
+    "documents": 180
+  }
+}

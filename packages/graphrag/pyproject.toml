@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sensei-graphrag"
+version = "0.1.0"
+description = "Sensei's knowledge module: permission-aware retrieval with citation-required answers"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = []  # standard library only; dense embeddings via a local Ollama are optional
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+]
+
+[project.scripts]
+graphrag-ask = "graphrag.cli:main"
+
+[tool.setuptools]
+packages = ["graphrag"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
