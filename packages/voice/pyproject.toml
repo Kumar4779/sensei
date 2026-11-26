@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sensei-voice"
+version = "0.1.0"
+description = "Voice Lab: Sensei's voice module — a reliability lab with a confirmation-echo gate for irreversible actions"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = [
+    "sensei_core",  # PermissionGate, tool manifests and the trace store; install packages/core alongside
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+]
+
+[tool.setuptools]
+packages = ["voice"]
+
+[tool.setuptools.package-data]
+voice = ["tools.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
