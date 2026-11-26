@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import urllib.error
 import urllib.request
@@ -38,6 +37,7 @@ from typing import Any, Protocol
 
 from sensei_core.clients import OLLAMA_BASE_URL, OllamaUnavailable
 from sensei_core.config import EmbeddingsConfig
+from sensei_core.private import private_dir, write_private
 from sensei_core.memory import MemoryStore
 from sensei_core.trace import TraceWriter
 
@@ -123,10 +123,8 @@ class EmbeddingIndex:
         return data
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(tmp, self.path)
+        private_dir(self.path.parent)  # Slice 33: vectors derived from personal facts; owner-only
+        write_private(self.path, json.dumps(data, sort_keys=True) + "\n")
 
     def sync(self, store: MemoryStore) -> dict[str, list[float]]:
         """Bring the index in line with the store's active entries; return id -> vector."""

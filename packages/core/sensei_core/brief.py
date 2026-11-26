@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from sensei_core.executor import Executor, RunResult
+from sensei_core.private import write_private
 from sensei_core.trace import TraceWriter
 from sensei_core.verifier import (
     Check,
@@ -373,7 +374,7 @@ def build_brief(
         run = executor.run_once(
             first_prompt(data), sensitivity, "simple", max_cost_usd=max_cost_usd, max_retries=max_retries
         )
-        out.write_text(render(run.response), encoding="utf-8")
+        write_private(out, render(run.response))  # Slice 33: the brief holds inbox content; 0600
         report = verifier.verify(checks_for(data, out))
         executor.note_checks(report)  # Slice 31: checks go in the run record
         if report.passed or not repair:
@@ -384,7 +385,7 @@ def build_brief(
         second = executor.run_once(
             repair_prompt(data, labels), sensitivity, "simple", max_cost_usd=remaining, max_retries=max_retries
         )
-        out.write_text(render(second.response), encoding="utf-8")
+        write_private(out, render(second.response))
         final = verifier.verify(checks_for(data, out))
         executor.note_checks(final)  # Slice 31: checks go in the run record
         if trace is not None:

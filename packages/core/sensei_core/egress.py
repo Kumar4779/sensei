@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from sensei_core.private import append_private
+
 API_TIERS = frozenset({"cheap_api", "frontier_api"})
 
 
@@ -54,8 +56,7 @@ class EgressLog:
         if error_class is not None:
             line["error_class"] = error_class
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(line, sort_keys=True) + "\n")
+        append_private(self.path, json.dumps(line, sort_keys=True) + "\n")  # Slice 33: 0600
         return line
 
     def lines(self) -> list[dict[str, Any]]:

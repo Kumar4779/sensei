@@ -24,11 +24,12 @@ prompts from the workflow's params.
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from sensei_core.private import private_dir, write_private
 
 # Identifies this process; an in_progress record written by any other process crashed.
 PROCESS_ID = uuid.uuid4().hex
@@ -86,10 +87,8 @@ class RunStore:
     def save(self, record: dict[str, Any]) -> None:
         record["updated_at"] = _now()
         path = self.path(record["run_id"])
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        private_dir(self.root)  # Slice 33: records can hold model responses; owner-only
+        write_private(path, json.dumps(record, indent=2, sort_keys=True) + "\n")
 
     def load(self, run_id: str) -> dict[str, Any]:
         path = self.path(run_id)

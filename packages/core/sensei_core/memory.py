@@ -17,7 +17,6 @@ trusted-contact facts always wait for confirmation.
 from __future__ import annotations
 
 import json
-import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -25,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from sensei_core.config import VALID_SENSITIVITY
+from sensei_core.private import append_private, private_dir, write_private
 
 SOURCES = frozenset({"user", "tool_content"})
 CATEGORIES = frozenset({"general", "permission", "money", "trusted_contact"})
@@ -50,7 +50,9 @@ class MemoryStore:
         self.root = Path(root)
         self.entries_dir = self.root / "entries"
         self.changelog_path = self.root / "changelog.jsonl"
-        self.entries_dir.mkdir(parents=True, exist_ok=True)
+        # Slice 33: memory is personal facts; the store's directories are owner-only.
+        private_dir(self.root)
+        private_dir(self.entries_dir)
 
     # ---- the only two ways in -------------------------------------------
 
@@ -203,13 +205,10 @@ class MemoryStore:
 
     def _save(self, entry: dict[str, Any]) -> None:
         path = self._entry_path(entry["id"])
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(entry, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        write_private(path, json.dumps(entry, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
 
     def _append_history(self, entry_id: str, entry: dict[str, Any]) -> None:
-        with self._history_path(entry_id).open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, sort_keys=True, ensure_ascii=False) + "\n")
+        append_private(self._history_path(entry_id), json.dumps(entry, sort_keys=True, ensure_ascii=False) + "\n")
 
     def _read_history(self, entry_id: str) -> list[dict[str, Any]]:
         path = self._history_path(entry_id)
@@ -223,9 +222,7 @@ class MemoryStore:
         if not history:
             path.unlink(missing_ok=True)
             return
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text("".join(json.dumps(h, sort_keys=True, ensure_ascii=False) + "\n" for h in history), encoding="utf-8")
-        os.replace(tmp, path)
+        write_private(path, "".join(json.dumps(h, sort_keys=True, ensure_ascii=False) + "\n" for h in history))
 
     def _all(self) -> list[dict[str, Any]]:
         entries = [json.loads(p.read_text(encoding="utf-8")) for p in self.entries_dir.glob("*.json")]
@@ -233,5 +230,4 @@ class MemoryStore:
 
     def _log(self, action: str, entry_id: str, detail: dict[str, Any]) -> None:
         record = {"ts": _now(), "action": action, "entry_id": entry_id, "detail": detail}
-        with self.changelog_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        append_private(self.changelog_path, json.dumps(record, ensure_ascii=False) + "\n")

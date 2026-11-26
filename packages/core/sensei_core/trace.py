@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from sensei_core.private import append_private, private_dir, tighten_file
+
 REDACTED = "[REDACTED]"
 
 # Each pattern either redacts the whole match, or keeps a named "keep"
@@ -52,7 +54,10 @@ class TraceWriter:
         self.path = Path(path)
         self.run_id = run_id
         self.session_id = session_id
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Slice 33: traces are owner-only whatever the umask (Threat 4). The traces
+        # directory is 0700 and this trace file 0600, tightened if they already exist.
+        private_dir(self.path.parent)
+        tighten_file(self.path)
 
     def write(
         self,
@@ -75,8 +80,7 @@ class TraceWriter:
         )
         # Serialise before opening so a bad payload never leaves a partial line.
         line = json.dumps(record, ensure_ascii=False) + "\n"
-        with self.path.open("a", encoding="utf-8") as f:
-            f.write(line)
+        append_private(self.path, line)
         return record
 
 

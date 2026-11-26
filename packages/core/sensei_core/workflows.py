@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable
 
 from sensei_core.brief import build_brief, failed_labels, load_morning_fixture
+from sensei_core.private import private_dir, write_private
 from sensei_core.trace import TraceWriter
 
 BRIEF_FAMILY = "morning_brief"
@@ -23,7 +23,7 @@ BRIEF_FAMILY = "morning_brief"
 
 def run_brief_workflow(executor, params: dict[str, Any], trace: TraceWriter | None = None) -> dict[str, Any]:
     """The gateway's morning brief: build, verify and repair, then write <day>.md and <day>.json."""
-    brief_dir = Path(params["brief_dir"])
+    brief_dir = private_dir(params["brief_dir"])  # Slice 33: briefs are content; owner-only
     md, status = brief_dir / f"{params['day']}.md", brief_dir / f"{params['day']}.json"
     data = load_morning_fixture(params["fixture"], pending_count=params["pending_count"],
                                 yesterday_cost_usd=params["yesterday_cost_usd"])
@@ -32,7 +32,7 @@ def run_brief_workflow(executor, params: dict[str, Any], trace: TraceWriter | No
               "verified": result.verified, "attempts": result.attempts, "failed_checks": failed_labels(result.report),
               "route": result.run.route, "model": result.run.model,
               "est_cost_usd": result.total_est_cost_usd, "latency_ms": result.total_latency_ms}
-    status.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    write_private(status, json.dumps(record, indent=2) + "\n")
     if trace is not None:
         trace.write("brief_generated", {k: record[k] for k in ("day", "verified", "attempts", "failed_checks")})
     return record

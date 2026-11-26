@@ -21,23 +21,18 @@ TOKEN = "test-token-not-a-secret"
 AUTH = {"X-Sensei-Token": TOKEN}
 
 
-def owner_only(traces):
-    os.chmod(traces, 0o700)
-    for f in traces.iterdir():
-        os.chmod(f, 0o600)
-
-
-def parts(home, private=True):
+def parts(home, loosen=False):
     trace = TraceWriter(home / "traces" / "gateway.jsonl", run_id="gateway", session_id="local")
     clients = {"local_private": FakeClient("l"), "cheap_api": FakeClient("c"), "frontier_api": FakeClient("f")}
     ex = Executor(Router(load_models(), trace=trace), clients, trace=trace)  # writes manifests_loaded
-    if private:
-        owner_only(trace.path.parent)  # the trace file is created with the process umask (often 644)
+    if loosen:  # a planted failure: someone opened the traces up after Sensei created them
+        os.chmod(trace.path.parent, 0o755)
+        os.chmod(trace.path, 0o644)
     return ex, trace
 
 
-def app_for(home, private=True, **kw):
-    ex, trace = parts(home, private)
+def app_for(home, loosen=False, **kw):
+    ex, trace = parts(home, loosen)
     return create_app(ex, trace.path, MemoryStore(home / "memory"), trace, **kw), trace
 
 
@@ -77,15 +72,19 @@ def test_strict_mode_from_the_environment(tmp_path, monkeypatch):
     app, _ = app_for(tmp_path / "clean")
     assert app.state.posture.strict
     with pytest.raises(GatewayConfigError, match="trace_store: .* readable by any local user"):
-        app_for(tmp_path / "loose", private=False)  # a planted failure: traces left at the umask's 644
+        app_for(tmp_path / "loose", loosen=True)
 
 
-def test_a_fresh_gateway_with_a_default_umask_fails_the_trace_store_check(tmp_path, monkeypatch):
+def test_a_fresh_gateway_with_a_default_umask_passes_the_trace_store_check(tmp_path, monkeypatch):
+    # Slice 32 pinned the opposite: under umask 022 a fresh gateway's traces were 755/644 and this
+    # check failed. Slice 33 creates them owner-only, so the same startup now passes.
     monkeypatch.setenv(TOKEN_ENV, TOKEN)
     old = os.umask(0o022)  # the common default
     try:
-        app, _ = app_for(tmp_path, private=False)
+        app, trace = app_for(tmp_path)
     finally:
         os.umask(old)
-    [failed] = app.state.posture.failed  # an honest finding about Sensei itself, not a test setup
-    assert failed.check == "trace_store" and "readable by any local user: the directory 755 (+1 more)" in failed.evidence
+    result = next(r for r in app.state.posture.results if r.check == "trace_store")
+    assert result.status == "pass", result.evidence
+    assert not app.state.posture.failed
+    assert oct(trace.path.parent.stat().st_mode & 0o777) == "0o700" and oct(trace.path.stat().st_mode & 0o777) == "0o600"

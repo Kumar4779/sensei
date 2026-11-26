@@ -481,3 +481,40 @@ records the results, failures included.
     by any local user. The probe found a real gap in Sensei itself.
     `TraceWriter` does not yet create traces owner-only; until it does, run
     `chmod -R go-rwx ~/.sensei/traces`.
+
+## Owner-only stores (Slice 33)
+
+The Slice 32 probe's first finding, fixed in code. `TraceWriter` created the
+traces directory and files with the process umask, so under umask 022 traces
+were world-readable (Threat 4), and a fresh gateway failed `trace_store`.
+
+- **`private.py`:** directories 0700 and files 0600, set explicitly whatever
+  the umask. Files are opened with the mode and then `fchmod`'d; atomic
+  replaces create the temporary file owner-only too.
+- **Tightening on open:** opening a store tightens only the directories and
+  files that store owns, and only if this user owns them. Parent directories
+  and neighbouring files are never touched.
+- **Audit of every writer under the Sensei home:**
+
+  | Writer | Writes | Before | Now |
+  |---|---|---|---|
+  | `trace.py` (`TraceWriter`) | `traces/*.jsonl` | umask (755 / 644) | directory 0700, files 0600, tightened on open |
+  | `egress.py` | `egress.jsonl` | umask (644) | 0600 |
+  | `runs.py` | `runs/*.json` (may hold model responses) | umask | directory 0700, files 0600 |
+  | `memory.py` | `memory/`, `entries/*.json`, history, changelog | umask | directories 0700, files 0600 |
+  | `custodian.py` | `memory/derived/embeddings.json` | umask | directory 0700, file 0600 |
+  | `brief.py`, `workflows.py` | `briefs/<day>.md`, `<day>.json` | umask | directory 0700, files 0600 |
+  | `killswitch.py` | `killed.json` | umask | unchanged: state, not content |
+  | `bench.py` | `evals/results/*.json` | umask | unchanged: published results in the repo, not the Sensei home |
+
+- **Tests:**
+  - The Slice 32 test that pinned the failure now asserts the opposite: a
+    fresh gateway under umask 022 passes `trace_store`.
+  - Every store is created under umask 000, where a file left to the umask
+    would be 666, and must come out 0700 / 0600.
+  - A regression guard runs a fresh home under umasks 000, 022 and 002.
+- **Verified live, real gateway startups under umask 022:**
+  - **A fresh home** passes `trace_store` (700 / 600): 5 pass, 1 warn, 0 fail.
+  - **The real `~/.sensei`** gives the same result. The startup also tightened
+    the existing `~/.sensei/memory` from 755 to 700. The Sensei home directory
+    itself is left as it is.
