@@ -915,6 +915,22 @@ wholesale.
 - **Tests: 116,** the 88 existing plus 28 new. Disabling echo-completeness
   fails 10 of the new tests, and disabling FAILED fails 2.
 
+## Voice Lab: manifest coverage and the voice-loop entry point (Voice Lab Slice 4, #14)
+
+This is the last salvage from the parallel Slice 1 build: two items its final
+re-check found in neither the ported bucket nor the rejected one.
+
+- **Manifest coverage, adapted to main's structure.** Every tool `VoiceTools`
+  implements (its `_<tool>` methods) must have a `tools.toml` entry, and every
+  entry must have an implementation. A subclass with an unlisted tool shows
+  that the check catches one. The test sits beside the existing manifest test
+  in `test_loop.py`.
+- **`voice-loop` console script.** `[project.scripts] voice-loop =
+  "voice.cli:main"`, and a test resolves the installed entry point to
+  `cli.main`.
+- **Tests: 119,** the 116 existing plus 3 new: manifest coverage, its
+  negative case, and the console-script entry point.
+
 ## Voice Lab: the parser gaps voice-bench-v2 found (Voice Lab Slice 5, #12)
 
 This is a parser-only change; the confirmation state machine and the
@@ -931,13 +947,53 @@ PermissionGate wiring are unchanged.
   from 0.80 to 1.00, with controls 0.67 → 1.00 and safety 0.86 → 1.00. The
   hard gate passed over all 117 runs, and v1, voice-interrupt-v1 and the echo
   ablation were unchanged. The frozen task files are unchanged.
-- **Tests: 145,** the 119 existing plus 26 new. The 119 are Slice 3's 116
-  plus the 3 Slice 4 (#14) added: manifest coverage, its negative case, and
-  the console-script entry point. Slice 4 has no entry of its own here. The
-  26 new are 25 parser regressions and a test that keeps the Slice 3 before
-  state on record.
+- **Tests: 145,** the 119 existing (Slice 4's total) plus 26 new: 25 parser
+  regressions and a test that keeps the Slice 3 before state on record.
   - The parser regressions cover an injected claim in nine sentence and turn
     positions, which never executes anything, and the multi-command,
     benign-multi-sentence and teen-amount cases.
   - The one Slice 3 test that pinned the two old failures now asserts there
     are none.
+
+## Voice Lab: real speech adapters and the first real-audio run (Voice Lab Slice 6, #18)
+
+The loop, the PermissionGate and the confirmation state machine are unchanged.
+The fakes stay the default everywhere, and CI stays offline.
+
+- **Deepgram STT** (`nova-3`, pre-recorded, one request per push-to-talk
+  capture) returns the transcript with Deepgram's own confidence, so
+  low-confidence clarification runs unchanged on real recogniser output.
+  `smart_format` is off, so the recogniser's words reach the parser.
+- **ElevenLabs TTS** (`eleven_flash_v2_5`, streaming endpoint, one fixed
+  default voice) synthesizes and plays each reply with `afplay`.
+- **Explicit selection.** Use `make_stt` / `make_tts`, or `voice-loop --stt
+  deepgram --tts elevenlabs`. A selected provider whose Keychain key is missing
+  fails closed before the session starts.
+- **Keys and audio.** Keys come from core's credential broker, read for one
+  request, and never reach an error, a trace or a results file. Audio is never
+  stored or traced. The exception is `afplay`'s owner-only temp file, deleted
+  as soon as playback ends.
+- **Real-path trace fields.** A real-path turn carries provider, model,
+  `stt_latency_ms`, `tts_first_byte_ms`, `tts_total_ms` and
+  `time_to_first_audio_ms` under `real_path`. Transcript-path turns are
+  unchanged. A TTS failure after an action ran still traces the turn.
+- **Live smoke** (local only): the morning brief was read aloud, and "send the
+  note to Alex" was echoed aloud, confirmed by a spoken yes and sent once. The
+  hard gate passed. Time to first audio was 805–990 ms.
+- **First real-audio run** of voice-bench-v2: k=1, a measurement, not a
+  pass/fail claim. 3 of 9 distinct lines diverge from the scripted heard text.
+  The two misheard probes were heard correctly, so they weren't exercised.
+  "Pay invoice 204" came back as "two zero four" at 0.776, and the loop
+  clarified because the parser doesn't read it as a number, not because of low
+  confidence. The injection prefix was heard exactly as said, and the command
+  was echoed, not run. All 10 tasks ended with the expected outcomes, and the
+  hard gate passed.
+- **Spend,** for every paid call this slice, failed attempts included:
+  - 830 characters synthesized and about 34 s of audio transcribed;
+  - about $0.04 at list price, or $0.05 at the conservative rate the spend
+    cap uses;
+  - about 331 ElevenLabs free-tier credits, of which 227 were measured from
+    response headers.
+  The keys are scoped, so the provider usage counters can't be read.
+- **Tests: 173,** the 145 existing plus 28 new, all offline: mocked provider
+  responses, and a fixture that fails any test that opens a socket.

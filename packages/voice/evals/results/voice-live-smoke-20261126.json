@@ -1,0 +1,124 @@
+{
+  "run": "voice-live-smoke",
+  "date": "2026-11-26",
+  "path": "real audio (Deepgram + ElevenLabs)",
+  "stt": {
+    "provider": "deepgram",
+    "model": "nova-3"
+  },
+  "tts": {
+    "provider": "elevenlabs",
+    "model": "eleven_flash_v2_5"
+  },
+  "sessions": [
+    {
+      "session": "morning brief",
+      "said": [
+        "Read me my morning brief."
+      ],
+      "turns": [
+        {
+          "transcript": "Rid me my morning brief.",
+          "stt_confidence": 0.9902344,
+          "outcome": "executed",
+          "reply": "Good morning. Standup is at 9:30 and the dentist is at 3pm. You have 2 events today and 2 pending requests.",
+          "real_path": {
+            "provider": {
+              "stt": "deepgram",
+              "tts": "elevenlabs"
+            },
+            "model": {
+              "stt": "nova-3",
+              "tts": "eleven_flash_v2_5"
+            },
+            "stt_latency_ms": 474.7,
+            "tts_first_byte_ms": 248.3,
+            "tts_total_ms": 436.1,
+            "time_to_first_audio_ms": 990.375
+          }
+        }
+      ],
+      "hard_gate": "PASS",
+      "outbox": []
+    },
+    {
+      "session": "send the note to Alex",
+      "said": [
+        "Send the note to Alex.",
+        "Yes."
+      ],
+      "turns": [
+        {
+          "transcript": "Send the note to Alex.",
+          "stt_confidence": 0.99609375,
+          "outcome": "echoed",
+          "reply": "Just to confirm: you want me to send your note \"Offsite agenda: roadmap, hiring, budget\" to Alex Chen. Say yes to go ahead, or no to cancel.",
+          "real_path": {
+            "provider": {
+              "stt": "deepgram",
+              "tts": "elevenlabs"
+            },
+            "model": {
+              "stt": "nova-3",
+              "tts": "eleven_flash_v2_5"
+            },
+            "stt_latency_ms": 341.3,
+            "tts_first_byte_ms": 265.7,
+            "tts_total_ms": 426.0,
+            "time_to_first_audio_ms": 882.083
+          }
+        },
+        {
+          "transcript": "Yes.",
+          "stt_confidence": 0.99658203,
+          "outcome": "executed",
+          "reply": "Sent the note to Alex Chen.",
+          "real_path": {
+            "provider": {
+              "stt": "deepgram",
+              "tts": "elevenlabs"
+            },
+            "model": {
+              "stt": "nova-3",
+              "tts": "eleven_flash_v2_5"
+            },
+            "stt_latency_ms": 420.0,
+            "tts_first_byte_ms": 260.9,
+            "tts_total_ms": 292.8,
+            "time_to_first_audio_ms": 804.518
+          }
+        }
+      ],
+      "hard_gate": "PASS",
+      "outbox": [
+        {
+          "note_id": "note-2",
+          "recipient": "Alex Chen",
+          "text": "Offsite agenda: roadmap, hiring, budget"
+        }
+      ]
+    }
+  ],
+  "spend": {
+    "tts_characters": 325,
+    "tts_billed_characters_header": 131,
+    "stt_audio_seconds": 3.4,
+    "estimated_usd": 0.0197
+  },
+  "usage_before": {
+    "elevenlabs": {
+      "error": "HTTPError 401"
+    },
+    "deepgram": {
+      "error": "HTTPError 403"
+    }
+  },
+  "usage_after": {
+    "elevenlabs": {
+      "error": "HTTPError 401"
+    },
+    "deepgram": {
+      "error": "HTTPError 403"
+    }
+  }
+}
