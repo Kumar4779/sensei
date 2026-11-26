@@ -18,6 +18,12 @@ parameters, echo text, confirmation, execution result, reply and latencies.
 The gate and the confirmation machine write their own events to the same
 trace. Audio is never stored.
 
+Real-path turns (Slice 6). When a real STT or TTS served the turn, the record
+also carries `real_path`: provider and model for each side, stt_latency_ms,
+tts_first_byte_ms, tts_total_ms and time_to_first_audio_ms (turn start to
+playback start). `latency_ms` is unchanged. Real-path numbers are reported
+apart from the transcript path's and never merged with them.
+
 Interruption (Slice 2). A reply is spoken as segments: sentences, or a
 calendar listing's header and then one segment per event. An utterance with
 `barge_in_after=n` arrived while the previous reply was still playing, after
@@ -47,7 +53,8 @@ from typing import Any
 from sensei_core.permissions import Outcome, PermissionGate, ToolSpec
 from sensei_core.trace import TraceWriter
 
-from voice.adapters import FakeSTT, FakeTTS, ScriptedUtterance, SpeechToText, TextToSpeech
+from voice.adapters import (FakeSTT, FakeTTS, ScriptedUtterance, SpeechToText, SpokenReply, TextToSpeech,
+                            Transcript)
 from voice.confirm import ConfirmationMachine, EchoIncomplete, State, UnverifiedAction
 from voice.intents import (Clarify, Command, Memory, confirmed_params, is_low_confidence, parse_command,
                            parse_confirmation, render_echo, spoken_values)
@@ -106,6 +113,7 @@ class VoiceSession:
         self.speaking: Speech | None = None
         self.reecho: tuple[str, dict[str, Any]] | None = None  # an interrupted echo, to be read back again
         self.turns = 0
+        self.last_heard: str | None = None  # the most recent transcript, for the terminal loop to show
 
     @property
     def run_failed(self) -> bool:
@@ -121,6 +129,7 @@ class VoiceSession:
         self.speaking = None  # whatever was playing has finished or was cut off
         transcript = self.stt.transcribe(utterance)
         heard = time.perf_counter()
+        self.last_heard = transcript.text
         record: dict[str, Any] = {"turn": self.turns, "transcript": transcript.text,
                                   "stt_confidence": transcript.confidence, "after_barge_in": barge, "intent": None,
                                   "decision": None, "action_id": None, "proposed": None, "echo_text": None,
@@ -128,11 +137,20 @@ class VoiceSession:
         reply, record["outcome"] = self._handle(transcript.text, transcript.confidence, record, barge)
         acted = time.perf_counter()
         self.speaking = _speech(reply, record["outcome"], record)
-        self.tts.speak(reply)
-        spoke = time.perf_counter()
         record["reply"] = reply
+        try:
+            spoken = self.tts.speak(reply)
+        except Exception as e:  # a real TTS can fail after the action ran: the turn is still traced
+            record["tts_error"] = getattr(e, "error_class", type(e).__name__)
+            record["latency_ms"] = {"stt": _ms(start, heard), "understand_and_act": _ms(heard, acted),
+                                    "time_to_first_audio": None, "turn": _ms(start, time.perf_counter())}
+            self.trace.write("voice_turn", record)
+            raise
+        spoke = time.perf_counter()
         record["latency_ms"] = {"stt": _ms(start, heard), "understand_and_act": _ms(heard, acted),
                                 "time_to_first_audio": _ms(start, spoke), "turn": _ms(start, time.perf_counter())}
+        if transcript.provider is not None or spoken.provider is not None:
+            record["real_path"] = _real_path(transcript, spoken, start, self.stt.name, self.tts.name)
         self.trace.write("voice_turn", record)
         return reply
 
@@ -267,6 +285,15 @@ class VoiceSession:
             return TOOL_FAILED_REPLY, "failed"
         record["execution"] = {"tool": action.tool, "result": result.data}
         return result.reply, "executed"
+
+
+def _real_path(transcript: Transcript, spoken: SpokenReply, start: float, stt: str, tts: str) -> dict[str, Any]:
+    """Provider timings for a turn a real adapter served. A fake side reports its name and no timings."""
+    return {"provider": {"stt": transcript.provider or stt, "tts": spoken.provider or tts},
+            "model": {"stt": transcript.model, "tts": spoken.model},
+            "stt_latency_ms": transcript.latency_ms, "tts_first_byte_ms": spoken.first_byte_ms,
+            "tts_total_ms": spoken.total_ms,
+            "time_to_first_audio_ms": None if spoken.playback_started is None else _ms(start, spoken.playback_started)}
 
 
 def run_script(session: VoiceSession, utterances: list[ScriptedUtterance]) -> list[str]:

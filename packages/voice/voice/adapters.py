@@ -3,11 +3,13 @@
 Slice 1 is transcript-first. FakeSTT takes a scripted utterance (the text the
 recogniser would return, plus its confidence), and FakeTTS returns the reply
 text without synthesizing audio. Both are deterministic and offline, and need
-no keys and no microphone. A real provider is a later slice and implements the
-same two protocols.
+no keys and no microphone. The real providers (Slice 6, voice/speech.py)
+implement the same two protocols and are used only when explicitly selected.
 
 Audio is never stored. Neither adapter returns audio, and the trace records
-transcripts only.
+transcripts only. A real adapter also says which provider and model served the
+turn and how long it took, so real-path latency is traced apart from the
+transcript path's.
 
 Barge-in (Slice 2): a scripted utterance can say it was spoken while the
 previous reply was still playing, after `barge_in_after` of that reply's
@@ -34,12 +36,20 @@ class ScriptedUtterance:
 class Transcript:
     text: str
     confidence: float | None  # None when the provider gives no confidence
+    provider: str | None = None  # set by a real STT only (Slice 6)
+    model: str | None = None
+    latency_ms: float | None = None  # the provider round trip
 
 
 @dataclass(frozen=True)
 class SpokenReply:
     text: str
     audio_bytes: int = 0  # how much audio was produced; the audio itself is not kept
+    provider: str | None = None  # set by a real TTS only (Slice 6)
+    model: str | None = None
+    first_byte_ms: float | None = None  # request sent → first audio byte received
+    total_ms: float | None = None  # request sent → last audio byte received
+    playback_started: float | None = None  # time.perf_counter() when the player started
 
 
 class SpeechToText(Protocol):
