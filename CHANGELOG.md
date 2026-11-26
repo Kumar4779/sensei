@@ -213,18 +213,29 @@ DONE. "Confirmed from the iPhone" needs both `memory_confirmed` and the
 iPhone's tailnet address on `POST /memory/confirm`. Records are kept in the
 scratch home.
 
-- **MacPilot today:** `packages/macpilot` holds only its README. It has no
-  browser task and no perception step, so the demo reports that leg as NOT
-  DONE rather than faking it.
-- **First run (2026-11-25): 4 of 6 claims proven.**
-  - Proven: the Custodian proposal (`mcp_tool_call` `memory_propose`), the
-    verified brief (`brief_generated`, `verified: true`), egress (0 API calls;
-    every call was local), and the kill switch (`kill_switch_engaged` →
-    `gateway_run_refused` → `kill_switch_disengaged`).
-  - Not done: the MacPilot leg (no code yet).
-  - Not done: the phone approval. The entry was confirmed (`memory_confirmed`),
-    but the request came from the Mac's own tailnet address, not the iPhone's,
-    so the demo did not count it.
+- **The MacPilot leg** runs MacPilot's own Slice 1 demo task
+  (`python -m macpilot.demo`, in MacPilot's virtualenv, with a scratch browser
+  profile). It counts only if MacPilot's own audit log records `goal_reached`.
+- **Latest run (2026-11-25, US Central; 2026-11-26 UTC): 6 of 6 claims proven.**
+  - **Custodian proposal:** `mcp_tool_call` `memory_propose` (status
+    `proposed`) in the Custodian trace.
+  - **Brief verified:** `brief_generated` with `verified: true`, 1 attempt and
+    no failed checks.
+  - **MacPilot:** the audit log records the click at normalized (500, 500),
+    grounded to (640, 360) on a 1280×720 viewport, with `outcome:
+    goal_reached` for the stop condition "the page shows 'Clicked'".
+  - **Phone approval:** `memory_confirmed` for the proposed entry, and
+    `POST /memory/confirm` in the access log from the iPhone's tailnet
+    address. The access log has no requests from the Mac's tailnet address;
+    the script's own calls came from 127.0.0.1.
+  - **Egress:** 0 API calls and 0 bytes. Every model call was local.
+  - **Kill switch:** `kill_switch_engaged`, then `gateway_run_refused` (HTTP
+    503), then `kill_switch_disengaged`.
+- **Earlier runs:**
+  - The first run (2026-11-25) proved 4 of 6. MacPilot had no code yet, and
+    the confirm came from the Mac's tailnet address, not the iPhone's.
+  - A second run proved 5 of 6. MacPilot reached its goal, but no confirm
+    arrived within the 20-minute wait.
 
 ## Research adoptions (Slice 28)
 
