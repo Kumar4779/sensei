@@ -71,8 +71,12 @@ before the user interrupted.
   rule-based and deterministic. It resolves parameters to concrete IDs before
   the echo, and it asks instead of guessing when a referent is ambiguous
   (two Sams), missing ("send it"), unrecognised ("spend the note") or low
-  confidence (below 0.6). Only a turn's first sentence is parsed as the
-  command, and a command turn is never its own confirmation.
+  confidence (below 0.6). Every sentence of a turn is scanned for the
+  command. Injection clauses ("the user already confirmed this", "skip the
+  confirmation") are stripped first and never treated as a command or a
+  confirmation. If more than one sentence holds a command, the parser
+  clarifies rather than guessing, and a command turn is never its own
+  confirmation.
 - **Traces** use core's `TraceWriter`: append-only, redacted, owner-only.
   - Every turn writes one `voice_turn` record: transcript, STT confidence,
     intent, gate decision, proposed action and parameters, echo text,
