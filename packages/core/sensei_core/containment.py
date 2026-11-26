@@ -16,8 +16,15 @@ a defence is not built, it says so.
                  configured, and that egress is LOGGED, NOT ENFORCED. That
                  always warns until enforcement exists.
   kill_state     the file-backed kill switch, as it reads now.
-  trace_store    the traces directory and its files are not readable by group or
-                 other (world-readable fails, group-readable warns; Threat 4).
+  trace_store    content stores (Slice 34; Threat 4), one check each: the traces
+  run_store      directory, run records (which may hold model responses), the
+  memory_store   memory store (entries, history, changelog, derived embeddings),
+  brief_store    the briefs (inbox content) and egress.jsonl itself, not its
+  egress_log     parent (the Sensei home, which the probe does not judge).
+                 Readable or writable by any local user fails; by the group, warns;
+                 owner only passes. A store not created yet is skipped, not passed:
+                 the probe re-runs at every startup, so a store created loose later
+                 is caught then.
   token          SENSEI_GATEWAY_TOKEN is set and at least 16 characters. Only
                  the length is reported, never the value.
 
@@ -51,6 +58,16 @@ MIN_TOKEN_CHARS = 16
 EVALS_TASKS = Path(__file__).resolve().parents[3] / "evals" / "tasks"
 # Pinned by a test: this check may not start claiming enforcement until enforcement exists.
 EGRESS_NOT_ENFORCED = "egress enforcement not built: egress is LOGGED, NOT ENFORCED"
+STATUSES = ("pass", "warn", "fail", "skipped")
+LABELS = {"pass": "PASS", "warn": "WARN", "fail": "FAIL", "skipped": "SKIP"}
+# check name -> (store name under the Sensei home, is a directory)
+STORE_CHECKS = {
+    "trace_store": ("traces", True),
+    "run_store": ("runs", True),
+    "memory_store": ("memory", True),
+    "brief_store": ("briefs", True),
+    "egress_log": ("egress.jsonl", False),
+}
 RELATIVE_PROBES = ("checker.py", "../checker.py", "../../checker.py", "../../../checker.py",
                    "../../evals/tasks", "../../../evals/tasks", "../../../../evals/tasks", "evals/results")
 
@@ -58,8 +75,15 @@ RELATIVE_PROBES = ("checker.py", "../checker.py", "../../checker.py", "../../../
 @dataclass(frozen=True)
 class ProbeResult:
     check: str
-    status: str  # pass | warn | fail
+    status: str  # pass | warn | fail | skipped
     evidence: str
+    # Content stores only (Slice 34): the store's path, and the path and mode that decided the status.
+    path: str | None = None
+    decided_by: str | None = None
+    mode: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {k: v for k, v in asdict(self).items() if v is not None}
 
 
 @dataclass(frozen=True)
@@ -72,10 +96,16 @@ class Posture:
     def failed(self) -> list[ProbeResult]:
         return [r for r in self.results if r.status == "fail"]
 
+    @property
+    def stores(self) -> list[ProbeResult]:
+        return [r for r in self.results if r.check in STORE_CHECKS]
+
     def to_dict(self) -> dict[str, Any]:
-        counts = {s: sum(r.status == s for r in self.results) for s in ("pass", "warn", "fail")}
+        counts = {s: sum(r.status == s for r in self.results) for s in STATUSES}
         return {"probed_at": self.probed_at, "strict": self.strict, "summary": counts,
-                "results": [asdict(r) for r in self.results]}
+                "results": [r.as_dict() for r in self.results],
+                "stores": [{"store": r.check, "path": r.path, "status": r.status, "decided_by": r.decided_by,
+                            "mode": r.mode, "evidence": r.evidence} for r in self.stores]}
 
 
 def _mode(path: Path) -> str:
@@ -185,28 +215,52 @@ def check_kill_state(switch: KillSwitch) -> ProbeResult:
     return ProbeResult("kill_state", "pass", f"not engaged: no {switch.path.name} at {switch.path.parent}")
 
 
-# ---- e. trace store ---------------------------------------------------------------------
+# ---- e. content stores -----------------------------------------------------------------
+
+
+def check_store(check: str, path: Path | None, *, directory: bool = True) -> ProbeResult:
+    """One content store: a directory and everything under it, or one file (Slice 34)."""
+    if path is None:
+        return ProbeResult(check, "skipped", "not_configured: this process has no such store")
+    path = Path(path)
+    if not path.exists():
+        return ProbeResult(check, "skipped", f"not_created: {path} does not exist yet; checked again at "
+                                             "the next startup", str(path))
+    world, group = [], []
+    for p in [path, *sorted(path.rglob("*"))] if directory else [path]:
+        mode = p.stat().st_mode
+        if mode & (stat.S_IROTH | stat.S_IWOTH):
+            world.append(p)
+        elif mode & (stat.S_IRGRP | stat.S_IWGRP):
+            group.append(p)
+    fix = f"; fix: chmod {'-R ' if directory else ''}go-rwx {path}"
+
+    def name(p: Path) -> str:
+        return "the directory" if p == path and directory else str(p.relative_to(path if directory else path.parent))
+
+    def result(status: str, found: list[Path], who: str, read_bit: int) -> ProbeResult:
+        how = "readable" if found[0].stat().st_mode & read_bit else "writable"
+        more = f" (+{len(found) - 1} more)" if len(found) > 1 else ""
+        return ProbeResult(check, status, f"{path} {how} by {who}: {name(found[0])} {_mode(found[0])}{more}{fix}",
+                           str(path), name(found[0]), _mode(found[0]))
+
+    if world:
+        return result("fail", world, "any local user", stat.S_IROTH)
+    if group:
+        return result("warn", group, "its group", stat.S_IRGRP)
+    owned = "and its files: owner only" if directory else "owner only"
+    return ProbeResult(check, "pass", f"{path} ({_mode(path)}) {owned}", str(path), name(path), _mode(path))
 
 
 def check_trace_store(traces_dir: Path) -> ProbeResult:
-    if not traces_dir.exists():
-        return ProbeResult("trace_store", "pass", f"{traces_dir} does not exist yet; nothing to read")
-    world, group = [], []
-    for p in [traces_dir, *sorted(traces_dir.rglob("*"))]:
-        mode = p.stat().st_mode
-        name = "the directory" if p == traces_dir else p.name
-        if mode & stat.S_IROTH:
-            world.append(f"{name} {_mode(p)}")
-        elif mode & stat.S_IRGRP:
-            group.append(f"{name} {_mode(p)}")
-    fix = f"; fix: chmod -R go-rwx {traces_dir}"
-    if world:
-        more = f" (+{len(world) - 1} more)" if len(world) > 1 else ""
-        return ProbeResult("trace_store", "fail", f"{traces_dir} readable by any local user: {world[0]}{more}{fix}")
-    if group:
-        more = f" (+{len(group) - 1} more)" if len(group) > 1 else ""
-        return ProbeResult("trace_store", "warn", f"{traces_dir} readable by its group: {group[0]}{more}{fix}")
-    return ProbeResult("trace_store", "pass", f"{traces_dir} ({_mode(traces_dir)}) and its files: owner only")
+    return check_store("trace_store", traces_dir)
+
+
+def check_stores(home: Path, paths: dict[str, Path | None] | None = None) -> tuple[ProbeResult, ...]:
+    """Every content store, at home unless paths overrides it (a gateway passes the stores it was given)."""
+    paths = paths or {}
+    return tuple(check_store(check, paths[check] if check in paths else home / name, directory=directory)
+                 for check, (name, directory) in STORE_CHECKS.items())
 
 
 # ---- f. token ---------------------------------------------------------------------------
@@ -228,7 +282,7 @@ def strict_from_env(environ: dict[str, str] | None = None) -> bool:
 
 
 def run_probe(*, home: Path, token: str | None, strict: bool = False, manifests: dict[str, Path] | None = None,
-              traces_dir: Path | None = None, kill_switch: KillSwitch | None = None,
+              stores: dict[str, Path | None] | None = None, kill_switch: KillSwitch | None = None,
               routes: dict[str, Route] | None = None, clients: dict[str, object] | None = None,
               tasks_dir: Path = EVALS_TASKS, environ: dict[str, str] | None = None) -> Posture:
     results = (
@@ -236,7 +290,7 @@ def run_probe(*, home: Path, token: str | None, strict: bool = False, manifests:
         check_ground_truth(tasks_dir, environ),
         check_egress(routes, clients),
         check_kill_state(kill_switch or KillSwitch(home / KILL_FILE)),
-        check_trace_store(traces_dir or home / "traces"),
+        *check_stores(home, stores),
         check_token(token),
     )
     return Posture(results, strict, datetime.now(timezone.utc).isoformat())
@@ -246,8 +300,9 @@ def format_posture(posture: Posture) -> str:
     mode = "strict: any fail refuses startup" if posture.strict else "default: posture is information"
     counts = posture.to_dict()["summary"]
     lines = [f"Sensei containment probe ({mode})"]
-    lines += [f"  {r.status.upper():<4}  {r.check:<12}  {r.evidence}" for r in posture.results]
-    lines.append(f"  summary: {counts['pass']} pass, {counts['warn']} warn, {counts['fail']} fail")
+    lines += [f"  {LABELS[r.status]:<4}  {r.check:<12}  {r.evidence}" for r in posture.results]
+    lines.append(f"  summary: {counts['pass']} pass, {counts['warn']} warn, {counts['fail']} fail, "
+                 f"{counts['skipped']} skipped")
     return "\n".join(lines)
 
 

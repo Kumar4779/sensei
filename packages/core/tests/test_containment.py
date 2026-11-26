@@ -126,7 +126,8 @@ def test_a_kill_file_that_is_not_honoured_fails(tmp_path, monkeypatch):
 
 def test_trace_store_pass_warn_fail_by_who_can_read(tmp_path):
     traces = tmp_path / "traces"
-    assert c.check_trace_store(traces).status == "pass"  # nothing there yet
+    r = c.check_trace_store(traces)  # nothing there yet: skipped, not passed (Slice 34)
+    assert r.status == "skipped" and r.evidence.startswith("not_created:")
     traces.mkdir()
     f = traces / "gateway.jsonl"
     f.write_text("{}\n")
@@ -139,6 +140,98 @@ def test_trace_store_pass_warn_fail_by_who_can_read(tmp_path):
     chmod(traces, 0o755)
     r = c.check_trace_store(traces)
     assert r.status == "fail" and "readable by any local user: the directory 755" in r.evidence
+
+
+# ---- Slice 34: every content store ------------------------------------------------------
+
+STORES = ["trace_store", "run_store", "memory_store", "brief_store", "egress_log"]
+
+
+def owner_only_home(tmp_path):
+    """A synthetic home with every store present, owner only, nested where the real ones nest."""
+    home = tmp_path / "home"
+    files = ["traces/gateway.jsonl", "runs/abc.json", "memory/entries/e1.json", "memory/entries/e1.history.jsonl",
+             "memory/changelog.jsonl", "memory/derived/embeddings.json", "briefs/2026-11-26.md",
+             "briefs/2026-11-26.json", "egress.jsonl"]
+    for rel in files:
+        f = home / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("{}\n")
+    for p in [*home.rglob("*")]:
+        chmod(p, 0o700 if p.is_dir() else 0o600)
+    return home
+
+
+# (store check, the path made loose, its loose mode, what the evidence names)
+LOOSE = [
+    ("trace_store", "traces", 0o755, "the directory 755"),
+    ("trace_store", "traces/gateway.jsonl", 0o644, "gateway.jsonl 644"),
+    ("run_store", "runs/abc.json", 0o644, "abc.json 644"),
+    ("memory_store", "memory/entries/e1.json", 0o644, "entries/e1.json 644"),
+    ("memory_store", "memory/derived/embeddings.json", 0o604, "derived/embeddings.json 604"),
+    ("memory_store", "memory/derived", 0o703, "derived 703"),  # world-writable directory
+    ("brief_store", "briefs", 0o755, "the directory 755"),
+    ("brief_store", "briefs/2026-11-26.md", 0o644, "2026-11-26.md 644"),
+    ("egress_log", "egress.jsonl", 0o644, "egress.jsonl 644"),
+]
+
+
+def test_an_owner_only_home_passes_every_store(tmp_path):
+    home = owner_only_home(tmp_path)
+    results = c.check_stores(home)
+    assert [r.check for r in results] == STORES
+    assert all(r.status == "pass" for r in results), [r.evidence for r in results]
+    egress = results[-1]
+    assert egress.evidence == f"{home / 'egress.jsonl'} (600) owner only" and egress.mode == "600"
+
+
+@pytest.mark.parametrize("check,rel,mode,named", LOOSE)
+def test_a_loose_store_fails_only_its_own_check(tmp_path, check, rel, mode, named):
+    home = owner_only_home(tmp_path)
+    chmod(home / rel, mode)
+    by_check = {r.check: r for r in c.check_stores(home)}
+    assert {k for k, r in by_check.items() if r.status != "pass"} == {check}
+    r = by_check[check]
+    assert r.status == "fail" and named in r.evidence and "by any local user" in r.evidence
+    assert r.mode == oct(mode)[2:] and r.path == str(home / STORE_NAMES[check])
+    store = home / STORE_NAMES[check]
+    assert r.evidence.endswith(f"fix: chmod {'-R ' if store.is_dir() else ''}go-rwx {store}")
+
+
+@pytest.mark.parametrize("check", STORES)
+def test_a_group_readable_store_warns(tmp_path, check):
+    home = owner_only_home(tmp_path)
+    store = home / STORE_NAMES[check]
+    target = next(p for p in store.rglob("*") if p.is_file()) if store.is_dir() else store
+    chmod(target, 0o640)
+    by_check = {r.check: r for r in c.check_stores(home)}
+    assert {k for k, r in by_check.items() if r.status != "pass"} == {check}
+    assert by_check[check].status == "warn" and "readable by its group" in by_check[check].evidence
+    chmod(target, 0o620)  # group-writable, not readable: still a warn, named as writable
+    r = c.check_stores(home)[STORES.index(check)]
+    assert r.status == "warn" and "writable by its group" in r.evidence
+
+
+@pytest.mark.parametrize("check", STORES)
+def test_an_absent_store_is_skipped_not_failed(tmp_path, check):
+    home = owner_only_home(tmp_path)
+    store = home / STORE_NAMES[check]
+    shutil.rmtree(store) if store.is_dir() else store.unlink()
+    by_check = {r.check: r for r in c.check_stores(home)}
+    assert by_check[check].status == "skipped" and by_check[check].evidence.startswith("not_created:")
+    assert all(r.status == "pass" for k, r in by_check.items() if k != check)
+    posture = c.run_probe(home=home, token="x" * 20, environ={})
+    assert posture.to_dict()["summary"]["skipped"] == 1 and not posture.failed
+    assert f"SKIP  {check}" in c.format_posture(posture) and "1 skipped" in c.format_posture(posture)
+
+
+def test_a_store_the_process_was_not_given_is_skipped_as_not_configured(tmp_path):
+    home = owner_only_home(tmp_path)
+    r = c.check_stores(home, {"run_store": None})[1]
+    assert r.status == "skipped" and r.evidence.startswith("not_configured:")
+
+
+STORE_NAMES = {k: name for k, (name, _) in c.STORE_CHECKS.items()}
 
 
 # ---- f. token ---------------------------------------------------------------------------
@@ -168,8 +261,10 @@ def test_probe_structure_and_cli(tmp_path, monkeypatch, capsys):
     posture = c.run_probe(home=home, token="x" * 20, environ={})
     d = posture.to_dict()
     assert [r["check"] for r in d["results"]] == ["manifests", "ground_truth", "egress", "kill_state",
-                                                  "trace_store", "token"]
-    assert set(d) == {"probed_at", "strict", "summary", "results"} and sum(d["summary"].values()) == 6
+                                                  *STORES, "token"]
+    assert set(d) == {"probed_at", "strict", "summary", "results", "stores"} and sum(d["summary"].values()) == 10
+    assert set(d["summary"]) == {"pass", "warn", "fail", "skipped"}
+    assert [s["store"] for s in d["stores"]] == STORES
     json.dumps(d)  # traceable as-is
 
     monkeypatch.setenv("SENSEI_HOME", str(home))

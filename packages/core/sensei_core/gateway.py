@@ -137,11 +137,16 @@ def create_app(
 
     # Slice 32: test the posture, trace it, and in strict mode refuse to start on any fail.
     strict = strict_from_env() if strict is None else strict
-    traces_dir = (trace.path if trace is not None else ledger_path).parent
+    # Slice 34: every content store this gateway was given; one it was not given is skipped.
+    stores = {"trace_store": (trace.path if trace is not None else ledger_path).parent,
+              "run_store": executor.runs.root if executor.runs is not None else None,
+              "memory_store": memory_store.root,
+              "brief_store": Path(brief_dir) if brief_dir is not None else None,
+              "egress_log": Path(egress_path) if egress_path is not None else None}
 
     def probe():
         return run_probe(home=ledger_path.parent, token=token, strict=strict, manifests=executor.manifests.paths,
-                         traces_dir=traces_dir, kill_switch=switch, routes=executor.routes, clients=executor.clients)
+                         stores=stores, kill_switch=switch, routes=executor.routes, clients=executor.clients)
 
     app.state.posture = posture = probe()
     if trace is not None:

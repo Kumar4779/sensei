@@ -518,3 +518,49 @@ were world-readable (Threat 4), and a fresh gateway failed `trace_store`.
   - **The real `~/.sensei`** gives the same result. The startup also tightened
     the existing `~/.sensei/memory` from 755 to 700. The Sensei home directory
     itself is left as it is.
+
+## The probe covers every content store (Slice 34)
+
+Slice 32's probe checked only the traces directory. Slice 33 made every content
+store owner-only. The probe now verifies each store at every startup, so a
+regression in any one writer is caught the way the traces one was.
+
+- **One check per store, same severity split:**
+  - Readable or writable by any local user fails; by the group, warns; owner
+    only passes.
+  - The checks are `trace_store` (`traces/`, unchanged), `run_store`
+    (`runs/`), `memory_store` (`memory/`: entries, history, changelog,
+    `derived/embeddings.json`), `brief_store` (`briefs/`) and `egress_log`
+    (`egress.jsonl` itself; its parent is the Sensei home, which the probe
+    does not judge).
+  - Each line names the path and mode that decided it, plus the `chmod` that
+    fixes it.
+- **A store not created yet is skipped, not failed:** it reports
+  `not_created`. The probe re-runs at every startup, so a store created loose
+  later is caught then. A store a gateway was not given (for example no run
+  records) reports `not_configured`. The summary counts pass, warn, fail and
+  skipped separately.
+- **`GET /posture`** adds a `stores` table (store, path, status, the path and
+  mode that decided it, evidence), the same rows as the startup print and the
+  traced `containment_probe` event.
+- **The gateway probes the stores it was actually given** (its trace, run
+  store, memory store, brief directory and egress log), not paths guessed
+  from the home.
+- **Tests:**
+  - A synthetic home with each store loose in turn: exactly that store fails
+    and the others pass. This covers nested files and a world-writable
+    directory.
+  - Group-readable and group-writable each warn.
+  - A fully owner-only home passes every store, and an absent store is
+    skipped.
+  - Strict mode refuses startup on any one store failing and starts on a
+    clean home.
+  - The live regression guard: a fresh home under umask 022 runs one brief,
+    one API-route run and one memory write, so every store exists. The next
+    startup's probe passes every store.
+  - A planted regression (run records written with the umask) fails the live
+    guard and every strict-mode test, naming `run_store`.
+- **Verified live, a real gateway startup on `~/.sensei` under umask 022:** 6
+  pass, 1 warn (egress, not enforced), 0 fail, 3 skipped. `traces/` and
+  `memory/` pass. `runs/`, `briefs/` and `egress.jsonl` have not been written
+  on this machine yet, so they are `not_created`.
