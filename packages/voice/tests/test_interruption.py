@@ -11,6 +11,7 @@ from sensei_core.trace import TraceWriter, read_events
 from voice.adapters import FakeTTS, ScriptedUtterance
 from voice.confirm import State, UnverifiedAction
 from voice.loop import VoiceSession
+from voice.intents import render_echo
 from voice.verify import verify_run
 
 INTERRUPT_PATH = Path(__file__).resolve().parents[1] / "evals" / "voice-interrupt-v1" / "tasks.json"
@@ -126,7 +127,7 @@ def test_the_machine_refuses_to_confirm_a_plan_from_before_the_interruption(live
 def test_a_receipt_issued_before_the_interruption_cannot_be_redeemed(live, trace_path):
     params = {"note_id": "note-2", "recipient": "Alex Chen"}
     action = live.machine.propose("send_note", params)
-    live.machine.echo(action.action_id, lambda tool, p: "echo")
+    live.machine.echo(action.action_id, lambda tool, p: render_echo(tool, p, live.world))
     live.machine.confirm(action.action_id, params)
     receipt = action.receipt
     live.machine.interrupt("mid-answer")  # confirmed, not yet executed: now stale

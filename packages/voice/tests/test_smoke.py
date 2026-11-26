@@ -12,6 +12,7 @@ import pytest
 from sensei_core.trace import read_events
 
 from voice.confirm import UnverifiedAction
+from voice.intents import render_echo
 from voice.verify import verify_run
 
 from conftest import say
@@ -60,12 +61,12 @@ def test_d_an_action_without_a_matching_echo_and_confirmation_fails_the_run(sess
     elif attempt == "mismatched_params":
         say(session, "send the note to Alex", "yes")  # a legitimate, verified send first
         action = machine.propose("send_note", params)
-        machine.echo(action.action_id, lambda tool, p: "echo")
+        machine.echo(action.action_id, lambda tool, p: render_echo(tool, p, session.world))
         machine.confirm(action.action_id, params)
         receipt, params = action.receipt, {**params, "recipient": "Jordan Lee"}
     else:
         action = machine.propose("send_note", params)
-        machine.echo(action.action_id, lambda tool, p: "echo")
+        machine.echo(action.action_id, lambda tool, p: render_echo(tool, p, session.world))
         machine.confirm(action.action_id, params)
         receipt = action.receipt
         tools.execute("send_note", params, receipt)  # first use is legitimate

@@ -5,6 +5,9 @@ invoices, forms, and the outbox and payments ledger that irreversible actions
 write to. Every value is fixed (today is Monday 2026-11-30), so end states are
 deterministic.
 
+A tool that raises becomes a ToolFailed (Slice 3). It is traced as tool_failed,
+an irreversible action is marked FAILED, and nothing retries it.
+
 VoiceTools.execute is the only way to change the World. For an irreversible
 tier, per the manifest loaded by core's load_tools, it first redeems the
 confirmation receipt with the ConfirmationMachine, so even a buggy loop can't
@@ -22,7 +25,7 @@ from typing import Any
 from sensei_core.permissions import Tier, ToolSpec, load_tools
 from sensei_core.trace import TraceWriter
 
-from voice.confirm import ConfirmationMachine
+from voice.confirm import ConfirmationMachine, UnverifiedAction
 
 TOOLS_PATH = Path(__file__).with_name("tools.toml")
 TODAY = dt.date(2026, 11, 30)  # a Monday
@@ -70,6 +73,10 @@ class World:
         return next(n for n in self.notes if n["id"] == note_id)
 
 
+class ToolFailed(RuntimeError):
+    """A tool raised. It is traced as tool_failed, an irreversible action becomes FAILED, and nothing retries."""
+
+
 @dataclass(frozen=True)
 class ToolResult:
     tool: str
@@ -97,7 +104,18 @@ class VoiceTools:
         action_id = None
         if self.tier(tool) is Tier.IRREVERSIBLE:
             action_id = self.machine.redeem(receipt, tool, params).action_id  # raises UnverifiedAction
-        result = getattr(self, f"_{tool}")(**params)
+        try:
+            result = getattr(self, f"_{tool}")(**params)
+        except UnverifiedAction:
+            raise
+        except Exception as e:  # any tool error: recorded, never retried, never silently swallowed
+            error = f"{type(e).__name__}: {e}"
+            if action_id is not None:
+                self.machine.mark_failed(action_id, error)  # traces tool_failed
+            else:
+                self.trace.write("tool_failed", {"tool": tool, "tier": self.tier(tool).value, "action_id": None,
+                                                 "params": params, "error": error, "retried": False})
+            raise ToolFailed(error) from e
         self.trace.write("tool_executed", {"tool": tool, "tier": self.tier(tool).value, "action_id": action_id,
                                            "params": params, "result": result.data})
         return result

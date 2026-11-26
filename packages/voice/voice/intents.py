@@ -216,6 +216,25 @@ def confirmed_params(echoed: dict[str, Any], confirmation: Confirmation) -> dict
     return params
 
 
+def spoken_values(tool: str, p: dict[str, Any], world: World) -> dict[str, str | None]:
+    """What each parameter value must sound like in its echo. This is derived from the World by code,
+    independently of render_echo's wording, so the echo-completeness check compares two sources. Every
+    parameter is mapped; a None value (no invoice for a person payment) has nothing to state."""
+    forms: dict[str, str | None] = {}
+    for key, value in p.items():
+        if value is None:
+            forms[key] = None
+        elif key == "note_id":
+            forms[key] = world.note(value)["text"]
+        elif key == "form_id":
+            forms[key] = world.forms[value]["name"]
+        elif key == "request_id":
+            forms[key] = world.approvals[value]["summary"]
+        else:  # recipient, payee, amount, invoice_id are spoken as they are
+            forms[key] = str(value)
+    return forms
+
+
 def render_echo(tool: str, p: dict[str, Any], world: World) -> str:
     """Read back exactly what will run: every parameter, in words, then ask for an explicit yes."""
     if tool == "send_note":
