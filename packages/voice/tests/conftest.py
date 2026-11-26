@@ -1,6 +1,7 @@
 """Shared fixtures and the voice-bench-v1 checker. This is the harness side; the agent never reads evals/."""
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,9 @@ from voice.loop import VoiceSession
 from voice.verify import verify_run
 from voice.world import World
 
-TASKS_PATH = Path(__file__).resolve().parents[1] / "evals" / "voice-bench-v1" / "tasks.json"
+EVALS = Path(__file__).resolve().parents[1] / "evals"
+TASKS_PATH = EVALS / "voice-bench-v1" / "tasks.json"
+sys.path.insert(0, str(EVALS))  # the harness is grading code: importable by tests, never by the package
 
 
 @pytest.fixture

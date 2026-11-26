@@ -17,11 +17,31 @@ transcript, STT confidence, intent, gate decision, proposed action and
 parameters, echo text, confirmation, execution result, reply and latencies.
 The gate and the confirmation machine write their own events to the same
 trace. Audio is never stored.
+
+Interruption (Slice 2). A reply is spoken as segments: sentences, or a
+calendar listing's header and then one segment per event. An utterance with
+`barge_in_after=n` arrived while the previous reply was still playing, after
+n segments. The loop then:
+  - stops: TTS stops, the rest is never spoken, and a "barge_in" event is
+    traced with its timestamp, the point (mid-answer / mid-echo / mid-listing)
+    and what had been heard;
+  - invalidates: ConfirmationMachine.interrupt() makes every in-flight echo
+    stale, in code;
+  - re-plans from the interrupting utterance. A yes to an interrupted echo
+    re-issues the echo instead of executing. A mid-listing follow-up resolves
+    "that one" against the items actually heard, not the full listing.
+
+Echo OFF (the Slice 2 ablation only): irreversible actions are confirmed
+automatically, with source "ablation_auto", and run in the same turn. The run
+verifier counts each one as an unconfirmed action.
 """
 
 from __future__ import annotations
 
+import re
 import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from sensei_core.permissions import Outcome, PermissionGate, ToolSpec
@@ -40,9 +60,34 @@ def _ms(start: float, end: float) -> float:
     return round((end - start) * 1000, 3)
 
 
+@dataclass
+class Speech:
+    """The reply currently playing: what an interruption cuts off."""
+
+    segments: list[str]
+    point: str  # mid-answer | mid-echo | mid-listing: what a barge-in now would interrupt
+    event_ids: list[str] = field(default_factory=list)  # listing only: one per segment after the header
+
+
+def _sentences(text: str) -> list[str]:
+    return [s for s in re.split(r"(?<=[.?!])\s+", text.strip()) if s]
+
+
+def _speech(reply: str, outcome: str, record: dict[str, Any]) -> Speech:
+    if outcome in ("echoed", "re_echoed"):
+        return Speech(_sentences(reply), "mid-echo")
+    execution = record.get("execution") or {}
+    event_ids = (execution.get("result") or {}).get("event_ids", [])
+    if execution.get("tool") == "calendar_query" and len(event_ids) > 1:
+        header, items = reply.split(": ", 1)
+        return Speech([header + ":"] + items.rstrip(".").split("; "), "mid-listing", list(event_ids))
+    return Speech(_sentences(reply), "mid-answer")
+
+
 class VoiceSession:
     def __init__(self, trace: TraceWriter, world: World | None = None, stt: SpeechToText | None = None,
-                 tts: TextToSpeech | None = None, specs: dict[str, ToolSpec] | None = None) -> None:
+                 tts: TextToSpeech | None = None, specs: dict[str, ToolSpec] | None = None,
+                 echo: bool = True) -> None:
         self.world = world if world is not None else World()
         self.trace = trace
         self.stt = stt or FakeSTT()
@@ -54,6 +99,9 @@ class VoiceSession:
         self.memory = Memory()
         self.pending: str | None = None  # the action awaiting yes/no
         self.last_action: str | None = None  # the most recent confirmed action, so a repeat yes is a no-op
+        self.echo = echo  # False only for the echo on/off ablation
+        self.speaking: Speech | None = None
+        self.reecho: tuple[str, dict[str, Any]] | None = None  # an interrupted echo, to be read back again
         self.turns = 0
 
     @property
@@ -63,14 +111,20 @@ class VoiceSession:
     def turn(self, utterance: ScriptedUtterance) -> str:
         self.turns += 1
         start = time.perf_counter()
+        barge = None
+        if (utterance.barge_in_after is not None and self.speaking is not None
+                and utterance.barge_in_after < len(self.speaking.segments)):
+            barge = self._barge_in(utterance.barge_in_after)
+        self.speaking = None  # whatever was playing has finished or was cut off
         transcript = self.stt.transcribe(utterance)
         heard = time.perf_counter()
         record: dict[str, Any] = {"turn": self.turns, "transcript": transcript.text,
-                                  "stt_confidence": transcript.confidence, "intent": None, "decision": None,
-                                  "action_id": None, "proposed": None, "echo_text": None, "confirmation": None,
-                                  "execution": None}
-        reply, record["outcome"] = self._handle(transcript.text, transcript.confidence, record)
+                                  "stt_confidence": transcript.confidence, "after_barge_in": barge, "intent": None,
+                                  "decision": None, "action_id": None, "proposed": None, "echo_text": None,
+                                  "confirmation": None, "execution": None}
+        reply, record["outcome"] = self._handle(transcript.text, transcript.confidence, record, barge)
         acted = time.perf_counter()
+        self.speaking = _speech(reply, record["outcome"], record)
         self.tts.speak(reply)
         spoke = time.perf_counter()
         record["reply"] = reply
@@ -79,13 +133,44 @@ class VoiceSession:
         self.trace.write("voice_turn", record)
         return reply
 
-    def _handle(self, text: str, confidence: float | None, record: dict[str, Any]) -> tuple[str, str]:
+    def _barge_in(self, heard: int) -> str:
+        """The user spoke over the reply: stop, invalidate in-flight plans, keep only what was heard."""
+        speech = self.speaking
+        assert speech is not None
+        self.tts.stop(heard)
+        stale = self.machine.interrupt(speech.point)
+        if self.pending in stale:
+            action = self.machine.get(self.pending)
+            self.reecho = (action.tool, action.echoed_params or {})
+            self.pending = None
+        if speech.point == "mid-listing":  # "that one" can only mean an item the user actually heard
+            self.memory.last_event_ids = speech.event_ids[:max(0, heard - 1)]
+        self.trace.write("barge_in", {
+            "at": datetime.now(timezone.utc).isoformat(), "point": speech.point, "interrupted_turn": self.turns - 1,
+            "segments_heard": heard, "segments_total": len(speech.segments), "heard": " ".join(speech.segments[:heard]),
+            "stopped": True, "stale_action_ids": stale})
+        return speech.point
+
+    def _handle(self, text: str, confidence: float | None, record: dict[str, Any],
+                barge: str | None = None) -> tuple[str, str]:
         if is_low_confidence(confidence):
-            if self.pending:
+            if self.pending or self.reecho:
                 return "I didn't catch that clearly. Please say yes or no.", "clarify"
             return "I didn't catch that clearly. Could you say it again?", "clarify"
 
         confirmation = parse_confirmation(text, self.world)
+        if self.reecho is not None:
+            tool, params = self.reecho
+            self.reecho = None
+            if confirmation is not None:
+                record["confirmation"] = {"affirm": confirmation.affirm, "mentions": confirmation.mentions}
+                if not confirmation.affirm:
+                    return "Okay, cancelled. Nothing was done.", "declined"
+                echo = self._propose_and_echo(Command(tool, params), record)
+                return f"You interrupted me, so let me read that back again. {echo}", "re_echoed"
+        if barge is not None and confirmation is not None and not confirmation.affirm and not self.pending:
+            record["confirmation"] = {"affirm": False, "mentions": {}}
+            return "Okay, I've stopped.", "stopped"
         if self.pending and confirmation is None:  # a new command supersedes the unanswered echo
             self.machine.decline(self.pending, "superseded by a new command")
             self.pending = None
@@ -107,18 +192,33 @@ class VoiceSession:
         if decision.outcome is Outcome.DENY:
             return "I can't do that.", "refused"
         if decision.outcome is Outcome.HALT_FOR_APPROVAL:
-            action = self.machine.propose(command.tool, command.params)
-            echo = self.machine.echo(action.action_id, lambda tool, p: render_echo(tool, p, self.world))
-            self.pending = action.action_id
-            record.update(action_id=action.action_id, proposed={"tool": command.tool, "params": command.params},
-                          echo_text=echo)
-            return echo, "echoed"
+            if not self.echo:
+                return self._execute_without_echo(command, record)
+            return self._propose_and_echo(command, record), "echoed"
         result = self.tools.execute(command.tool, command.params)
         if command.tool == "calendar_query":
             self.memory.last_event_ids = list(result.data["event_ids"])
         if command.tool == "take_note":
             self.memory.last_note_id = result.data["note_id"]
         record["execution"] = {"tool": command.tool, "result": result.data}
+        return result.reply, "executed"
+
+    def _propose_and_echo(self, command: Command, record: dict[str, Any]) -> str:
+        action = self.machine.propose(command.tool, command.params)
+        echo = self.machine.echo(action.action_id, lambda tool, p: render_echo(tool, p, self.world))
+        self.pending = action.action_id
+        record.update(action_id=action.action_id, proposed={"tool": command.tool, "params": command.params},
+                      echo_text=echo)
+        return echo
+
+    def _execute_without_echo(self, command: Command, record: dict[str, Any]) -> tuple[str, str]:
+        """Ablation arm only: what an agent without the echo does. It acts on the transcript as heard."""
+        action = self.machine.propose(command.tool, command.params)
+        self.machine.echo(action.action_id, lambda tool, p: "(not spoken: echo off)")
+        self.machine.confirm(action.action_id, action.echoed_params or {}, source="ablation_auto")
+        record.update(action_id=action.action_id, proposed={"tool": command.tool, "params": command.params})
+        result = self.tools.execute(action.tool, action.echoed_params or {}, action.receipt)
+        record["execution"] = {"tool": action.tool, "result": result.data}
         return result.reply, "executed"
 
     def _confirm(self, confirmation: Any, record: dict[str, Any]) -> tuple[str, str]:

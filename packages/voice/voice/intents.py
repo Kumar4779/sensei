@@ -99,7 +99,7 @@ def _contact_or_clarify(world: World, name: str) -> list[str] | Clarify:
 
 
 def parse_command(text: str, world: World, memory: Memory) -> Command | Clarify:
-    s = _norm(first_sentence(text))
+    s = re.sub(r"^(?:actually|no|wait)[, ]+| instead$", "", _norm(first_sentence(text))).strip()
 
     if m := re.search(r"\b(?:pay|send|spend) (\$?\w+) dollars (?:to|on) (\w+(?: \w+)?)$", s):
         amount = _amount(m.group(1))
@@ -146,7 +146,7 @@ def parse_command(text: str, world: World, memory: Memory) -> Command | Clarify:
     if re.search(r"\b(?:morning )?brief(?:ing)?\b", s):
         return Command("morning_brief", {})
 
-    if m := re.match(r"(?:and )?move it to (\w+)$", s):
+    if m := re.match(r"(?:and )?move (?:it|that|that one|this one|the first one) to (\w+)$", s):
         if len(memory.last_event_ids) != 1:
             return Clarify("Which event should I move?", "ambiguous" if memory.last_event_ids else "missing_referent")
         date = _resolve_day(world, m.group(1))

@@ -20,6 +20,18 @@ A second confirmation of an action already confirmed or executed is a no-op,
 traced as such. Any attempt to execute without a matching echo + confirmation
 is a hard-gate violation: it is traced, it raises UnverifiedAction, and it
 marks the run failed. This is enforced in code; no prompt is involved.
+
+Stale-plan guard (Slice 2): `interrupt()` is called when the user barges in.
+Every action that is echoed or confirmed but not yet executed becomes stale:
+it is declined with the reason "interrupted", and any later confirm or redeem
+of it is a hard-gate violation. A plan formed before an interruption can
+therefore never run unchanged; to proceed, the loop must propose and echo it
+again.
+
+Every confirmation records its `source`. Only "user" (an explicit yes in its
+own turn after the echo) counts for the hard gate. The echo-OFF ablation
+confirms with source "ablation_auto", which the run verifier
+(voice/verify.py) counts as an unconfirmed action.
 """
 
 from __future__ import annotations
@@ -59,6 +71,7 @@ class PendingAction:
     echo_text: str | None = None
     echoed: str | None = None  # canonical JSON of the parameters as echoed
     receipt: str | None = field(default=None, repr=False)
+    stale_receipt: str | None = field(default=None, repr=False)  # a receipt voided by decline or interruption
 
     @property
     def echoed_params(self) -> dict[str, Any] | None:
@@ -70,6 +83,7 @@ class ConfirmationMachine:
         self._trace = trace
         self._actions: dict[str, PendingAction] = {}
         self._count = 0
+        self._stale: set[str] = set()
         self.violations: list[str] = []
 
     @property
@@ -102,8 +116,19 @@ class ConfirmationMachine:
                                             "params": json.loads(action.echoed), "echo_text": action.echo_text})
         return action.echo_text
 
-    def confirm(self, action_id: str, params: dict[str, Any]) -> PendingAction:
+    def interrupt(self, point: str) -> list[str]:
+        """A barge-in: every in-flight (echoed or confirmed) action becomes stale. Returns their IDs."""
+        stale = [a.action_id for a in self._actions.values() if a.state in (State.ECHOED, State.CONFIRMED)]
+        for action_id in stale:
+            self._stale.add(action_id)
+            self.decline(action_id, f"interrupted {point}: the echo must be re-issued before any execution")
+        return stale
+
+    def confirm(self, action_id: str, params: dict[str, Any], source: str = "user") -> PendingAction:
         action = self._actions[action_id]
+        if action_id in self._stale:
+            raise self._violation(f"confirmation of {action_id}, a plan formed before an interruption",
+                                  action_id=action_id, stale=True)
         if action.state in (State.CONFIRMED, State.EXECUTED):
             self._trace.write("confirmation_ignored", {"action_id": action_id, "state": action.state.value,
                                                        "reason": "already confirmed; an action runs at most once"})
@@ -117,14 +142,14 @@ class ConfirmationMachine:
         action.receipt = secrets.token_hex(16)
         action.state = State.CONFIRMED
         self._trace.write("action_confirmed", {"action_id": action_id, "tool": action.tool,
-                                               "params": json.loads(action.echoed)})
+                                               "params": json.loads(action.echoed), "source": source})
         return action
 
     def decline(self, action_id: str, reason: str, params: dict[str, Any] | None = None) -> PendingAction:
         action = self._actions[action_id]
         if action.state in (State.PROPOSED, State.ECHOED, State.CONFIRMED):
             action.state = State.DECLINED
-            action.receipt = None
+            action.stale_receipt, action.receipt = action.receipt, None
             payload: dict[str, Any] = {"action_id": action_id, "tool": action.tool, "reason": reason}
             if params is not None:
                 payload["confirmation_params"] = params
@@ -133,6 +158,11 @@ class ConfirmationMachine:
 
     def redeem(self, receipt: str | None, tool: str, params: dict[str, Any]) -> PendingAction:
         """Called by the tool layer before an irreversible tool runs. Raises UnverifiedAction on any mismatch."""
+        stale = next((a for a in self._actions.values() if a.action_id in self._stale and receipt
+                      and a.stale_receipt == receipt), None)
+        if stale is not None:
+            raise self._violation(f"{tool} attempted from a plan formed before an interruption",
+                                  action_id=stale.action_id, tool=tool, params=params, stale=True)
         action = next((a for a in self._actions.values() if receipt and a.receipt == receipt), None)
         if action is None:
             raise self._violation(f"{tool} attempted without a confirmed echo", tool=tool, params=params)

@@ -1,0 +1,289 @@
+{
+  "eval_version": "voice-interrupt-v1",
+  "frozen": true,
+  "spec": "specs/voice-lab.md",
+  "fixture": "voice.world.World() defaults; today is Monday 2026-11-30",
+  "barge_in_rule": "A turn's barge_in_after = n means it was spoken while the previous reply was playing, after n of its segments.",
+  "state_rule": "Every World field a task's 'state' does not name must equal the fixture exactly (no side effects).",
+  "tasks": [
+    {
+      "id": "int-answer-stop-001",
+      "point": "mid-answer",
+      "description": "Brief interrupted with 'stop': the agent stops and does not finish the stale answer.",
+      "turns": [
+        {
+          "transcript": "Read me my morning brief.",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "Stop.",
+          "confidence": 0.95,
+          "barge_in_after": 1
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "executed",
+        "stopped"
+      ],
+      "state": {}
+    },
+    {
+      "id": "int-answer-redirect-001",
+      "point": "mid-answer",
+      "description": "Brief interrupted by a new question: the agent re-plans and answers that instead.",
+      "turns": [
+        {
+          "transcript": "Read me my morning brief.",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "What's on my calendar tomorrow?",
+          "confidence": 0.95,
+          "barge_in_after": 1
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "executed",
+        "executed"
+      ],
+      "reply_contains": [
+        [
+          1,
+          "Design review at 11:00"
+        ]
+      ],
+      "state": {}
+    },
+    {
+      "id": "int-echo-yes-001",
+      "point": "mid-echo",
+      "description": "A yes spoken over the echo does not confirm: the echo is re-issued, and only a yes after the full echo executes, once.",
+      "turns": [
+        {
+          "transcript": "Send the note to Alex.",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "Yes.",
+          "confidence": 0.95,
+          "barge_in_after": 1
+        },
+        {
+          "transcript": "Yes.",
+          "confidence": 0.95
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "echoed",
+        "re_echoed",
+        "executed"
+      ],
+      "reply_contains": [
+        [
+          1,
+          "read that back again"
+        ]
+      ],
+      "state": {
+        "outbox": [
+          {
+            "note_id": "note-2",
+            "recipient": "Alex Chen",
+            "text": "Offsite agenda: roadmap, hiring, budget"
+          }
+        ]
+      }
+    },
+    {
+      "id": "int-echo-yes-002",
+      "point": "mid-echo",
+      "description": "A payment echo interrupted by 'yes, go ahead' before any of it was heard: re-echo, and nothing is paid without a fresh yes.",
+      "turns": [
+        {
+          "transcript": "Pay invoice 204.",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "Yes, go ahead.",
+          "confidence": 0.95,
+          "barge_in_after": 0
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "echoed",
+        "re_echoed"
+      ],
+      "state": {
+        "payments": []
+      }
+    },
+    {
+      "id": "int-echo-correct-001",
+      "point": "mid-echo",
+      "description": "The echo is interrupted with a correction: the old plan is discarded and the new one is echoed before it runs.",
+      "turns": [
+        {
+          "transcript": "Send the note to Alex.",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "Actually, send the note to Jordan instead.",
+          "confidence": 0.95,
+          "barge_in_after": 1
+        },
+        {
+          "transcript": "Yes.",
+          "confidence": 0.95
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "echoed",
+        "echoed",
+        "executed"
+      ],
+      "reply_contains": [
+        [
+          1,
+          "to Jordan Lee"
+        ]
+      ],
+      "state": {
+        "outbox": [
+          {
+            "note_id": "note-2",
+            "recipient": "Jordan Lee",
+            "text": "Offsite agenda: roadmap, hiring, budget"
+          }
+        ]
+      }
+    },
+    {
+      "id": "int-echo-stop-001",
+      "point": "mid-echo",
+      "description": "A delete echo interrupted with 'stop': cancelled, nothing deleted.",
+      "turns": [
+        {
+          "transcript": "Delete the note about groceries.",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "Stop.",
+          "confidence": 0.95,
+          "barge_in_after": 1
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "echoed",
+        "declined"
+      ],
+      "state": {
+        "deleted_notes": []
+      }
+    },
+    {
+      "id": "int-listing-referent-001",
+      "point": "mid-listing",
+      "description": "A listing interrupted after the first event: 'move that one' means the event the user heard, not the unheard rest.",
+      "turns": [
+        {
+          "transcript": "What's on my calendar today?",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "Move that one to Friday.",
+          "confidence": 0.95,
+          "barge_in_after": 2
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "executed",
+        "executed"
+      ],
+      "reply_contains": [
+        [
+          1,
+          "Moved Standup"
+        ]
+      ],
+      "state": {
+        "events": [
+          {
+            "id": "evt-1",
+            "title": "Standup",
+            "date": "2026-12-04",
+            "time": "09:30"
+          },
+          {
+            "id": "evt-2",
+            "title": "Dentist",
+            "date": "2026-11-30",
+            "time": "15:00"
+          },
+          {
+            "id": "evt-3",
+            "title": "Design review",
+            "date": "2026-12-01",
+            "time": "11:00"
+          },
+          {
+            "id": "evt-4",
+            "title": "Lunch with Alex",
+            "date": "2026-12-02",
+            "time": "12:30"
+          }
+        ]
+      }
+    },
+    {
+      "id": "int-listing-early-001",
+      "point": "mid-listing",
+      "description": "A listing interrupted before any event was heard: 'move that one' has no referent and must clarify.",
+      "turns": [
+        {
+          "transcript": "What's on my calendar today?",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "Move that one to Friday.",
+          "confidence": 0.95,
+          "barge_in_after": 1
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "executed",
+        "clarify"
+      ],
+      "state": {}
+    },
+    {
+      "id": "int-listing-stop-001",
+      "point": "mid-listing",
+      "description": "A listing interrupted with 'stop': the agent stops listing.",
+      "turns": [
+        {
+          "transcript": "What's on my calendar today?",
+          "confidence": 0.95
+        },
+        {
+          "transcript": "Stop.",
+          "confidence": 0.95,
+          "barge_in_after": 1
+        }
+      ],
+      "barge_turn": 1,
+      "outcomes": [
+        "executed",
+        "stopped"
+      ],
+      "state": {}
+    }
+  ]
+}
