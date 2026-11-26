@@ -13,8 +13,8 @@ system diagram:
 
 | Layer | Modules |
 |---|---|
-| Gateway | `gateway.py` (FastAPI: token auth, kill switch, cost ledger, brief and memory endpoints, the web UI in `ui/`), `ledger.py`, `egress.py` |
-| Agent Runtime | `router.py` (sensitivity first, cheapest capable route, escalation), `executor.py` (budgets, retries, no silent fallback), `verifier.py` (checks real state, never the model's claims), `brief.py` (the morning brief workflow) |
+| Gateway | `gateway.py` (FastAPI: token auth, kill switch, cost ledger, brief and memory endpoints, the web UI in `ui/`), `killswitch.py` (the file-backed kill switch), `ledger.py`, `egress.py` |
+| Agent Runtime | `router.py` (sensitivity first, cheapest capable route, escalation), `executor.py` (run budgets, spend caps and alerts, loop detection, retries, no silent fallback), `verifier.py` (checks real state, never the model's claims), `brief.py` (the morning brief workflow) |
 | Control Plane | `permissions.py` (tool tiers from `tools.toml`), `manifests.py` (guardrail manifests pinned by digest), `config.py` (routes from `models.toml`) |
 | Storage | `trace.py` (append-only JSONL with write-time redaction), `memory.py` (the inspectable memory store), `custodian.py` + `custodian_server.py` (the store served over MCP) |
 | Evals | `bench.py` (the SenseiBench runner; tasks live in [`evals/`](../../evals/)) |

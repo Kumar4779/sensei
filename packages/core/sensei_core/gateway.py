@@ -2,6 +2,9 @@
 
 Token auth on every endpoint except /health, a kill switch that refuses
 new runs, cost totals from the trace, and memory review/deletion.
+
+Slice 29: the kill switch is a file (<SENSEI_HOME>/killed.json, see
+killswitch.py), re-read on every request, so a restart cannot clear it.
 All components are injected; main() wires a real local setup.
 
 Slice 22 adds a phone-first web UI (a client of these endpoints, nothing
@@ -33,7 +36,8 @@ from sensei_core.brief import build_brief, failed_labels, load_morning_fixture
 from sensei_core.egress import EgressLog
 from sensei_core.manifests import ManifestTamperError
 
-from sensei_core.executor import BudgetExceeded, Executor, VerificationFailed
+from sensei_core.executor import BudgetExceeded, Executor, LoopDetected, SpendCapReached, VerificationFailed
+from sensei_core.killswitch import KILL_FILE, KillSwitch, KillSwitchEngaged
 from sensei_core.ledger import CostLedger
 from sensei_core.memory import MemoryStore
 from sensei_core.trace import TraceWriter
@@ -82,6 +86,7 @@ def create_app(
     brief_fixture: str | Path | None = None,
     brief_dir: str | Path | None = None,
     egress_path: str | Path | None = None,
+    kill_switch: KillSwitch | None = None,
 ) -> FastAPI:
     token = os.environ.get(TOKEN_ENV, "")
     if not token:
@@ -96,11 +101,13 @@ def create_app(
         raise GatewayConfigError(str(e)) from None
 
     app = FastAPI(title="Sensei Gateway", docs_url=None, redoc_url=None, openapi_url=None)
-    # Kill switch is in-memory app state (v1). Known limit: a restart clears it,
-    # and it refuses new runs but does not interrupt a run already in flight.
-    # Flagged for the threat model review.
-    app.state.killed = False
     ledger_path = Path(ledger_path)
+    # Slice 29: the killed state lives in a file, never in memory. Default: beside the
+    # trace; main() passes <SENSEI_HOME>/killed.json. Every request re-reads it.
+    switch = kill_switch if kill_switch is not None else KillSwitch(ledger_path.parent / KILL_FILE, trace)
+    if switch.engaged():
+        log.warning("kill switch engaged (%s exists): the gateway starts KILLED; POST /revive to resume",
+                    switch.path)
 
     def event(event_type: str, payload: dict) -> None:
         if trace is not None:
@@ -124,11 +131,11 @@ def create_app(
 
     @app.get("/health")
     def health() -> dict:
-        return {"status": "ok", "killed": app.state.killed}
+        return {"status": "ok", "killed": switch.engaged()}
 
     @app.post("/run", dependencies=auth)
     def run(body: RunRequest):
-        if app.state.killed:
+        if switch.engaged():
             event("gateway_run_refused", {"reason": "kill switch engaged"})
             return _error(503, "kill switch engaged")
         executor.manifests.verify()  # Slice 24: raises ManifestTamperError -> 500
@@ -136,6 +143,14 @@ def create_app(
             result = executor.run_once(
                 body.prompt, body.sensitivity_class, body.difficulty, max_cost_usd=body.max_cost_usd
             )
+        except SpendCapReached as e:
+            return _error(402, "spend cap reached", cap=e.cap, period=e.period,
+                          spent_est_cost_usd=e.accumulated_cost_usd, cap_usd=e.limit_usd,
+                          next_call_est_cost_usd=e.next_call_est_usd)
+        except LoopDetected as e:
+            return _error(508, "loop detected", route=e.route, successful_calls=e.successful_calls)
+        except KillSwitchEngaged:
+            return _error(503, "kill switch engaged")
         except BudgetExceeded as e:
             return _error(
                 402,
@@ -156,13 +171,13 @@ def create_app(
 
     @app.post("/kill", dependencies=auth)
     def kill() -> dict:
-        app.state.killed = True
+        switch.engage()
         event("kill_switch_engaged", {})
         return {"killed": True}
 
     @app.post("/revive", dependencies=auth)
     def revive() -> dict:
-        app.state.killed = False
+        switch.disengage()
         event("kill_switch_disengaged", {})
         return {"killed": False}
 
@@ -222,7 +237,7 @@ def create_app(
 
     @app.post("/brief/run", dependencies=auth)
     def brief_run():
-        if app.state.killed:
+        if switch.engaged():
             event("gateway_run_refused", {"reason": "kill switch engaged", "operation": "brief"})
             return _error(503, "kill switch engaged")
         if brief_fixture is None or briefs is None:
@@ -236,6 +251,12 @@ def create_app(
             data = load_morning_fixture(brief_fixture, pending_count=len(memory_store.list_pending()),
                                         yesterday_cost_usd=cost)
             result = build_brief(executor, data, md, "LOCAL_ONLY", repair=True, assemble_inbox=True, trace=trace)
+        except SpendCapReached as e:
+            return _error(402, "spend cap reached", cap=e.cap, period=e.period)
+        except LoopDetected as e:
+            return _error(508, "loop detected", route=e.route, successful_calls=e.successful_calls)
+        except KillSwitchEngaged:
+            return _error(503, "kill switch engaged")
         except BudgetExceeded as e:
             return _error(402, "budget exceeded", accumulated_est_cost_usd=e.accumulated_cost_usd)
         except ManifestTamperError:
@@ -294,7 +315,7 @@ def main() -> None:
     import uvicorn
 
     from sensei_core.clients import OllamaClient
-    from sensei_core.config import load_models
+    from sensei_core.config import load_budgets, load_models
     from sensei_core.router import FakeClient, Router
 
     home = Path(os.environ.get("SENSEI_HOME", Path.home() / ".sensei"))
@@ -304,6 +325,7 @@ def main() -> None:
 
     trace = TraceWriter(home / "traces" / "gateway.jsonl", run_id="gateway", session_id="local")
     egress = EgressLog(home / "egress.jsonl")
+    switch = KillSwitch(home / KILL_FILE, trace)
     executor = Executor(
         Router(routes, trace=trace),
         {
@@ -313,11 +335,14 @@ def main() -> None:
         },
         trace=trace,
         egress=egress,
+        budgets=load_budgets(),
+        kill_switch=switch,
     )
     fixture = os.environ.get("SENSEI_BRIEF_FIXTURE")
     try:
         app = create_app(executor, trace.path, MemoryStore(home / "memory"), trace,
-                         brief_fixture=fixture, brief_dir=home / "briefs", egress_path=egress.path)
+                         brief_fixture=fixture, brief_dir=home / "briefs", egress_path=egress.path,
+                         kill_switch=switch)
     except GatewayConfigError as e:
         raise SystemExit(f"Sensei gateway not started: {e}") from None
     host = bind_host()

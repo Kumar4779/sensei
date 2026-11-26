@@ -368,21 +368,23 @@ def build_brief(
     def render(response: str) -> str:
         return assemble_brief(response, data) if assemble_inbox else response
 
-    run = executor.run_once(
-        first_prompt(data), sensitivity, "simple", max_cost_usd=max_cost_usd, max_retries=max_retries
-    )
-    out.write_text(render(run.response), encoding="utf-8")
-    report = verifier.verify(checks_for(data, out))
-    if report.passed or not repair:
-        return BriefResult(out, report.passed, report, run, attempts=1, runs=(run,))
+    # Slice 29: the draft and the repair are one run for loop detection.
+    with executor.run_scope():
+        run = executor.run_once(
+            first_prompt(data), sensitivity, "simple", max_cost_usd=max_cost_usd, max_retries=max_retries
+        )
+        out.write_text(render(run.response), encoding="utf-8")
+        report = verifier.verify(checks_for(data, out))
+        if report.passed or not repair:
+            return BriefResult(out, report.passed, report, run, attempts=1, runs=(run,))
 
-    labels = failed_labels(report)
-    remaining = None if max_cost_usd is None else max(0.0, max_cost_usd - run.total_est_cost_usd)
-    second = executor.run_once(
-        repair_prompt(data, labels), sensitivity, "simple", max_cost_usd=remaining, max_retries=max_retries
-    )
-    out.write_text(render(second.response), encoding="utf-8")
-    final = verifier.verify(checks_for(data, out))
-    if trace is not None:
-        trace.write("repair_attempted", {"failed_labels": labels, "verified": final.passed})
-    return BriefResult(out, final.passed, final, second, attempts=2, first_report=report, runs=(run, second))
+        labels = failed_labels(report)
+        remaining = None if max_cost_usd is None else max(0.0, max_cost_usd - run.total_est_cost_usd)
+        second = executor.run_once(
+            repair_prompt(data, labels), sensitivity, "simple", max_cost_usd=remaining, max_retries=max_retries
+        )
+        out.write_text(render(second.response), encoding="utf-8")
+        final = verifier.verify(checks_for(data, out))
+        if trace is not None:
+            trace.write("repair_attempted", {"failed_labels": labels, "verified": final.passed})
+        return BriefResult(out, final.passed, final, second, attempts=2, first_report=report, runs=(run, second))

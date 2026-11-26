@@ -47,3 +47,11 @@ provider = "ollama"
 model = "nomic-embed-text"
 search_min_score = 0.50
 dedup_threshold = 0.88
+
+# Spend caps (Slice 29, DESIGN.md Threat 7): estimated USD, the same basis as the
+# CostLedger. They apply to API routes only; local routes cost nothing and are
+# exempt (never from the kill switch). A key left unset means no cap. Example:
+#   daily_cap_usd = 1.00
+#   monthly_cap_usd = 20.00
+# A spend_alert is traced once per day at 50% and at 80% of daily_cap_usd.
+[budgets]

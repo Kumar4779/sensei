@@ -1,7 +1,9 @@
 """Executor: one routed model call per run, with traced retries and budgets.
 
 Implements the Agent Runtime's Router -> Executor step (DESIGN.md §2)
-and the first layer of Threat 7 (run budgets, cost accounting).
+and Threat 7: run budgets, cost accounting, and (Slice 29) daily and monthly
+spend caps with alerts, loop detection, and a kill-switch check before every
+model call.
 Prompt and response text are never written to the trace, only their
 lengths (DESIGN.md Threat 4).
 """
@@ -9,18 +11,29 @@ lengths (DESIGN.md Threat 4).
 from __future__ import annotations
 
 import math
+import threading
 import time
+from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Iterator
 
-from sensei_core.egress import API_TIERS, EgressLog, destination_host
+from sensei_core.config import SpendCaps
+from sensei_core.egress import API_TIERS, EgressLog, destination_host, prompt_digest
+from sensei_core.killswitch import KillSwitch, KillSwitchEngaged
+from sensei_core.ledger import CostLedger
 from sensei_core.manifests import ManifestGuard, ManifestTamperError
 from sensei_core.router import ModelClient, RouteDecision, RouteRequest, Router, RoutingError
-from sensei_core.trace import TraceWriter
+from sensei_core.trace import TraceWriter, read_events
 from sensei_core.verifier import Check, VerificationReport, Verifier
 
 # Rough token estimate until real token counts arrive from clients.
 CHARS_PER_TOKEN = 4
 COST_BASIS = "estimated: tokens = ceil(chars / 4), cost = tokens / 1000 * est_cost_per_1k_tokens"
+# Slice 29: the third request for a call that already succeeded twice in this run halts it.
+LOOP_LIMIT = 3
+SPEND_ALERT_PERCENTS = (50, 80)
 
 
 class NoClientConfigured(RuntimeError):
@@ -38,6 +51,28 @@ class BudgetExceeded(RuntimeError):
             f"run budget exceeded: accumulated ${accumulated_cost_usd:.6f} + next call "
             f"~${next_call_est_usd:.6f} > limit ${limit_usd:.6f}"
         )
+
+
+class SpendCapReached(BudgetExceeded):
+    """A spend-cap halt (Slice 29): the next API call would push today's or this month's spend past its cap."""
+
+    def __init__(self, cap: str, period: str, spent_usd: float, cap_usd: float, next_call_est_usd: float) -> None:
+        self.cap = cap  # "daily" | "monthly"
+        self.period = period  # the UTC day or month the cap covers
+        super().__init__(spent_usd, cap_usd, next_call_est_usd)
+        self.args = (f"{cap} spend cap reached for {period}: spent ${spent_usd:.6f} + next call "
+                     f"~${next_call_est_usd:.6f} > cap ${cap_usd:.6f}",)
+
+
+class LoopDetected(RuntimeError):
+    """The run asked for the same successful call (same route, same prompt) a third time."""
+
+    def __init__(self, route: str, digest: str, successful_calls: int) -> None:
+        self.route = route
+        self.prompt_sha256 = digest
+        self.successful_calls = successful_calls
+        super().__init__(f"loop detected: route {route!r}, prompt {digest[:19]}… already succeeded "
+                         f"{successful_calls} times in this run")
 
 
 class VerificationFailed(RuntimeError):
@@ -77,6 +112,9 @@ class Executor:
         trace: TraceWriter | None = None,
         egress: EgressLog | None = None,
         manifests: ManifestGuard | None = None,
+        *,
+        budgets: SpendCaps | None = None,
+        kill_switch: KillSwitch | None = None,
     ) -> None:
         self._router = router
         self._clients = dict(clients)
@@ -85,6 +123,29 @@ class Executor:
         # Slice 24: guardrail manifests pinned at construction (default: the shipped
         # tools.toml and models.toml), re-verified before every run.
         self.manifests = manifests if manifests is not None else ManifestGuard(trace=trace)
+        # Slice 29: spend caps read today's and this month's spend from the trace (the cost
+        # ledger), so they need one. Caps unset = no cap.
+        self._budgets = budgets if budgets is not None and budgets.any else None
+        if self._budgets is not None and trace is None:
+            raise ValueError("spend caps need a trace: it is the cost ledger they are checked against")
+        self._kill_switch = kill_switch
+        self._scope = threading.local()  # per-thread: the gateway serves requests concurrently
+
+    @contextmanager
+    def run_scope(self) -> Iterator[None]:
+        """One run for loop detection. Calls inside share a count of successful identical calls.
+
+        A multi-call workflow (a brief's draft and repair, an agent loop) wraps its calls in one
+        scope; run_once opens its own scope when none is active. Nested scopes join the outer one.
+        """
+        if getattr(self._scope, "counts", None) is not None:
+            yield
+            return
+        self._scope.counts = Counter()
+        try:
+            yield
+        finally:
+            self._scope.counts = None
 
     def _event(self, event_type: str, payload: dict) -> None:
         if self._trace is not None:
@@ -99,6 +160,20 @@ class Executor:
         max_cost_usd: float | None = None,
         max_retries: int = 1,
         checks: list[Check] | None = None,
+    ) -> RunResult:
+        with self.run_scope():
+            return self._run_once(prompt, sensitivity_class, difficulty, max_cost_usd=max_cost_usd,
+                                  max_retries=max_retries, checks=checks)
+
+    def _run_once(
+        self,
+        prompt: str,
+        sensitivity_class: str,
+        difficulty: str,
+        *,
+        max_cost_usd: float | None,
+        max_retries: int,
+        checks: list[Check] | None,
     ) -> RunResult:
         if max_cost_usd is not None and max_cost_usd < 0:
             raise ValueError("max_cost_usd must be non-negative")
@@ -129,8 +204,8 @@ class Executor:
                     result, cost = self._call(prompt, decision, spent, limit, escalated=decision.route != first.route)
                     spent += cost
                     break
-                except (NoClientConfigured, BudgetExceeded, ManifestTamperError):
-                    raise
+                except (NoClientConfigured, BudgetExceeded, ManifestTamperError, LoopDetected, KillSwitchEngaged):
+                    raise  # halts, not route failures: never retried
                 except Exception as error:
                     failures += 1
                     self._event(
@@ -158,6 +233,27 @@ class Executor:
                         {"from_route": decision.route, "to_route": retry.route, "attempt": failures, "error": str(error)},
                     )
                     decision = retry
+        except SpendCapReached as e:
+            self._event(
+                "spend_cap_reached",
+                {
+                    "cap": e.cap,
+                    "period": e.period,
+                    "spent_est_cost_usd": e.accumulated_cost_usd,
+                    "cap_usd": e.limit_usd,
+                    "next_call_est_cost_usd": e.next_call_est_usd,
+                },
+            )
+            raise
+        except LoopDetected as e:
+            self._event(
+                "loop_detected",
+                {"route": e.route, "prompt_sha256": e.prompt_sha256, "successful_calls": e.successful_calls},
+            )
+            raise
+        except KillSwitchEngaged:
+            self._event("run_refused", {"reason": "kill switch engaged"})
+            raise
         except BudgetExceeded as e:
             self._event(
                 "budget_exceeded",
@@ -204,11 +300,21 @@ class Executor:
         limit: float | None,
         escalated: bool,
     ) -> tuple[RunResult, float]:
+        # Slice 29: every call, local or API, checks the file-backed kill switch, so a
+        # multi-call run stops at its next call after /kill.
+        if self._kill_switch is not None and self._kill_switch.engaged():
+            raise KillSwitchEngaged()
         client = self._clients.get(decision.route)
         if client is None:
             raise NoClientConfigured(f"no client configured for route {decision.route!r}")
         rate = self._router.route(decision.route).est_cost_per_1k_tokens
         tokens_in = estimate_tokens(len(prompt))
+
+        # Loop detection counts successful calls only, so retries of a failed call are exempt.
+        counts = self._scope.counts
+        key = (decision.route, prompt_digest(prompt))
+        if counts[key] >= LOOP_LIMIT - 1:
+            raise LoopDetected(decision.route, key[1], counts[key])
 
         # Pre-call projection uses input tokens only; output is unknown until the reply.
         if limit is not None:
@@ -217,6 +323,10 @@ class Executor:
                 raise BudgetExceeded(spent, limit, next_cost)
 
         route = self._router.route(decision.route)
+        # Spend caps cover API routes only: local routes cost nothing.
+        capped = self._budgets is not None and route.tier in API_TIERS
+        if capped:
+            self._check_spend_caps(estimate_cost(tokens_in, rate))
         egress = self._egress if route.tier in API_TIERS else None
         start = time.perf_counter()
         try:
@@ -233,6 +343,7 @@ class Executor:
             egress.record(route=decision.route, model=decision.model, host=destination_host(client, route.provider),
                           prompt=prompt, response=response)
 
+        counts[key] += 1
         tokens_out = estimate_tokens(len(response))
         cost = estimate_cost(tokens_in + tokens_out, rate)
         self._event(
@@ -249,4 +360,36 @@ class Executor:
                 "cost_basis": COST_BASIS,
             },
         )
+        if capped:
+            self._spend_alerts()
         return RunResult(response, decision.route, decision.model, latency_ms, escalated), cost
+
+    # ---- Slice 29: spend caps and alerts, from the cost ledger (the trace) ----
+
+    def _spend(self) -> tuple[str, float, str, float]:
+        """(UTC day, its estimated spend, UTC month, its estimated spend)."""
+        day = datetime.now(timezone.utc).date().isoformat()
+        month = day[:7]
+        by_day = CostLedger(self._trace.path).by_day() if self._trace.path.exists() else {}
+        return day, by_day.get(day, 0.0), month, sum(v for d, v in by_day.items() if d.startswith(month))
+
+    def _check_spend_caps(self, next_cost: float) -> None:
+        day, today, month, this_month = self._spend()
+        caps = self._budgets
+        if caps.daily_cap_usd is not None and today + next_cost > caps.daily_cap_usd:
+            raise SpendCapReached("daily", day, today, caps.daily_cap_usd, next_cost)
+        if caps.monthly_cap_usd is not None and this_month + next_cost > caps.monthly_cap_usd:
+            raise SpendCapReached("monthly", month, this_month, caps.monthly_cap_usd, next_cost)
+
+    def _spend_alerts(self) -> None:
+        """Trace spend_alert once per threshold per UTC day; the trace itself records what was sent."""
+        cap = self._budgets.daily_cap_usd
+        if not cap:
+            return
+        day, today, _, _ = self._spend()
+        sent = {e["payload"].get("percent") for e in read_events(self._trace.path)
+                if e.get("event_type") == "spend_alert" and e.get("payload", {}).get("day_utc") == day}
+        for percent in SPEND_ALERT_PERCENTS:
+            if today >= cap * percent / 100 and percent not in sent:
+                self._event("spend_alert", {"percent": percent, "day_utc": day, "spent_est_cost_usd": today,
+                                            "daily_cap_usd": cap})

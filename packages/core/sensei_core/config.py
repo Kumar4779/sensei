@@ -125,3 +125,32 @@ def load_embeddings(path: str | Path = DEFAULT_MODELS_PATH) -> EmbeddingsConfig:
             raise ConfigError(f"[embeddings] {key} must be a number in [0, 1]")
     return EmbeddingsConfig(str(raw["provider"]), str(raw["model"]), float(raw["search_min_score"]),
                             float(raw["dedup_threshold"]))
+
+
+@dataclass(frozen=True)
+class SpendCaps:
+    """The [budgets] table (Slice 29): estimated-USD caps on API-route spend. None = no cap."""
+
+    daily_cap_usd: float | None = None
+    monthly_cap_usd: float | None = None
+
+    @property
+    def any(self) -> bool:
+        return self.daily_cap_usd is not None or self.monthly_cap_usd is not None
+
+
+BUDGET_KEYS = ("daily_cap_usd", "monthly_cap_usd")
+
+
+def load_budgets(path: str | Path = DEFAULT_MODELS_PATH) -> SpendCaps:
+    """Load the optional [budgets] table; a missing table or key means no cap."""
+    raw = _read_manifest(path).get("budgets", {})
+    if not isinstance(raw, dict):
+        raise ConfigError("[budgets] must be a table")
+    unknown = set(raw) - set(BUDGET_KEYS)
+    if unknown:  # a misspelt cap must not silently mean "no cap"
+        raise ConfigError(f"[budgets] has unknown keys {sorted(unknown)}; expected {list(BUDGET_KEYS)}")
+    for key, v in raw.items():
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+            raise ConfigError(f"[budgets] {key} must be a non-negative number")
+    return SpendCaps(*(float(raw[k]) if k in raw else None for k in BUDGET_KEYS))

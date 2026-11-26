@@ -73,6 +73,10 @@ evals/               SenseiBench tasks, checkers and published results
 - **Everything is a trace.** Traces are append-only JSONL with write-time
   redaction, plus an egress log of every byte that leaves the machine (sizes
   and digests, never content).
+- **Runaways stop.** The kill switch is a file, so a restart cannot clear it,
+  and every model call checks it. Optional daily and monthly spend caps refuse
+  an API call before it is sent, with alerts at 50% and 80% of the daily cap. A
+  run that repeats the same successful call a third time halts.
 - **Memory is inspectable files.** Writes are gated, provenance is recorded,
   deletion is provable, and the store is shared with MCP clients through the
   Custodian, which can propose entries but never activate them.

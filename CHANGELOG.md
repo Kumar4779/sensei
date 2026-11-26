@@ -266,3 +266,55 @@ Docs only; no code changed.
 - **Threat 6 industry note** ([DESIGN.md](DESIGN.md) §3). Anthropic's Managed
   Agents rebuild reached the same credential design: credentials are injected
   at egress and never held by the agent.
+
+## Threat 7 completion (Slice 29)
+
+Runaway loops and cost (DESIGN.md §3, Threat 7): the kill switch persists,
+spend caps are enforced, and loops are detected.
+
+- **The kill switch persists** (`killswitch.py`).
+  - **The killed state is a file,** `<SENSEI_HOME>/killed.json`. `POST /kill`
+    writes it atomically, and `POST /revive` removes it.
+  - **It is re-read on every request,** for `/run`, `/brief/run` and
+    `/health`. A gateway started while the file exists starts KILLED, and
+    says so in a log warning.
+  - **Every model call checks it, local routes included,** so a multi-call run
+    such as a brief's draft and repair stops at its next call after a kill.
+    A run already inside a model call still finishes that call.
+  - **It fails closed.** A `killed.json` that exists but cannot be read, is not
+    JSON, or is anything other than `{"killed": true, …}` counts as killed and
+    traces `kill_state_unreadable`. Only a missing file means "not killed".
+  - The `kill_switch_engaged` and `kill_switch_disengaged` events are
+    unchanged.
+- **Spend caps** (`[budgets]` in `models.toml`: `daily_cap_usd`,
+  `monthly_cap_usd`).
+  - **They are estimated USD, on the same basis as the CostLedger.** Today's
+    and this month's spend are read from the trace (UTC day and month).
+  - **The check comes before every API-route call.** If the call's estimated
+    input cost would push spend past a cap, it is refused before anything is
+    sent: `SpendCapReached` (a `BudgetExceeded`), traced as
+    `spend_cap_reached` with the cap type. The gateway returns HTTP 402.
+  - **Local routes are exempt from the caps,** since they cost nothing, but
+    not from the kill switch.
+  - **No cap unless set.** The shipped table sets none, so behaviour,
+    existing tests and the bench are unchanged. An unknown key, such as a
+    misspelt cap, is a config error, not silently "no cap".
+- **Spend alerts.** After an API call, if today's spend has reached 50% or 80%
+  of the daily cap, the executor traces `spend_alert` with the percentage. Each
+  threshold fires once per UTC day, and the trace records which have fired, so
+  a restart does not send them again.
+- **Loop detection.** A run is `Executor.run_scope()`: `run_once` opens one,
+  and `build_brief` wraps its draft and repair in one.
+  - **What halts a run:** if the run asks for the same call (same route, same
+    prompt SHA-256, the egress digest) after it has already succeeded twice,
+    the third call is not sent. The run halts with `LoopDetected`, traced as
+    `loop_detected` (route, digest, count; never the prompt). The gateway
+    returns HTTP 508.
+  - **Only successful calls count,** so retries of a failed call are exempt.
+- **Not yet done:**
+  - DESIGN.md's Threat 7 asks for *near-identical* calls and "no measurable
+    progress". This slice detects only exact repeats.
+  - Alerts reach the trace, not yet the phone or Watch.
+  - There are no step budgets yet.
+  - The caps re-read the trace on each API call, which is fine at today's
+    trace sizes.
