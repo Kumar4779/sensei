@@ -15,7 +15,7 @@ system diagram:
 |---|---|
 | Gateway | `gateway.py` (FastAPI: token auth, kill switch, cost ledger, brief and memory endpoints, the web UI in `ui/`), `killswitch.py` (the file-backed kill switch), `ledger.py`, `egress.py` |
 | Agent Runtime | `router.py` (sensitivity first, cheapest capable route, escalation), `shadow.py` + `shadow_report.py` (a cost-aware policy deciding in shadow, and its agreement report), `executor.py` (run budgets, spend caps and alerts, loop detection, retries, no silent fallback), `verifier.py` (checks real state, never the model's claims), `brief.py` (the morning brief workflow) |
-| Control Plane | `permissions.py` (tool tiers from `tools.toml`), `manifests.py` (guardrail manifests pinned by digest), `config.py` (routes from `models.toml`) |
+| Control Plane | `permissions.py` (tool tiers from `tools.toml`), `containment.py` (the startup self-probe), `manifests.py` (guardrail manifests pinned by digest), `config.py` (routes from `models.toml`) |
 | Storage | `trace.py` (append-only JSONL with write-time redaction), `runs.py` (crash-safe run records), `workflows.py` + `resume.py` (resumable workflows and resume), `replay.py` (deterministic replay of a trace), `memory.py` (the inspectable memory store), `custodian.py` + `custodian_server.py` (the store served over MCP) |
 | Evals | `bench.py` (the SenseiBench runner; tasks live in [`evals/`](../../evals/)) |
 | Model access | `clients.py` (Ollama). API routes use fake clients until real API clients exist. |

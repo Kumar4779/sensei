@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterator
 
-from sensei_core.config import SpendCaps
+from sensei_core.config import Route, SpendCaps
 from sensei_core.egress import API_TIERS, EgressLog, destination_host, prompt_digest
 from sensei_core.killswitch import KillSwitch, KillSwitchEngaged
 from sensei_core.ledger import CostLedger
@@ -151,6 +151,16 @@ class Executor:
         # Slice 30: decides on every run in shadow; never executed, never calls a model.
         self.shadow = ShadowPolicy(router.routes)
         self.runs = runs  # Slice 31: crash-safe run records; None = no records (tests, library use)
+
+    @property
+    def routes(self) -> dict[str, Route]:
+        """A copy of the routing table in force (read by the containment probe; Slice 32)."""
+        return self._router.routes
+
+    @property
+    def clients(self) -> dict[str, ModelClient]:
+        """A copy of the route -> client map (the probe reports which are fakes; Slice 32)."""
+        return dict(self._clients)
 
     @contextmanager
     def run_scope(

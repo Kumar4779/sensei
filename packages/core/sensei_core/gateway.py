@@ -27,6 +27,7 @@ import hmac
 import json
 import logging
 import os
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
@@ -35,6 +36,7 @@ from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
+from sensei_core.containment import format_posture, run_probe, strict_from_env
 from sensei_core.egress import EgressLog
 from sensei_core.manifests import ManifestTamperError
 
@@ -110,6 +112,7 @@ def create_app(
     brief_dir: str | Path | None = None,
     egress_path: str | Path | None = None,
     kill_switch: KillSwitch | None = None,
+    strict: bool | None = None,
 ) -> FastAPI:
     token = os.environ.get(TOKEN_ENV, "")
     if not token:
@@ -131,6 +134,21 @@ def create_app(
     if switch.engaged():
         log.warning("kill switch engaged (%s exists): the gateway starts KILLED; POST /revive to resume",
                     switch.path)
+
+    # Slice 32: test the posture, trace it, and in strict mode refuse to start on any fail.
+    strict = strict_from_env() if strict is None else strict
+    traces_dir = (trace.path if trace is not None else ledger_path).parent
+
+    def probe():
+        return run_probe(home=ledger_path.parent, token=token, strict=strict, manifests=executor.manifests.paths,
+                         traces_dir=traces_dir, kill_switch=switch, routes=executor.routes, clients=executor.clients)
+
+    app.state.posture = posture = probe()
+    if trace is not None:
+        trace.write("containment_probe", posture.to_dict())
+    if strict and posture.failed:
+        raise GatewayConfigError("containment probe failed in strict mode: "
+                                 + "; ".join(f"{r.check}: {r.evidence}" for r in posture.failed))
 
     def event(event_type: str, payload: dict) -> None:
         if trace is not None:
@@ -177,6 +195,11 @@ def create_app(
         except Exception as e:
             return _error(502, f"run failed: {type(e).__name__}: {e}")
         return dataclasses.asdict(result)
+
+    @app.get("/posture", dependencies=auth)
+    def posture_now() -> dict:
+        # Read-only: re-probes now and returns the same structure as the startup event.
+        return probe().to_dict()
 
     @app.post("/kill", dependencies=auth)
     def kill() -> dict:
@@ -354,19 +377,25 @@ def local_setup(home: Path) -> tuple[Executor, TraceWriter, KillSwitch]:
     return executor, trace, switch
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Serve a real local setup on 127.0.0.1: Ollama for local_private, fakes for API routes."""
+    import argparse
+
     import uvicorn
 
+    ap = argparse.ArgumentParser(prog="python -m sensei_core.gateway")
+    ap.add_argument("--strict", action="store_true", help="refuse to start if the containment probe has a fail")
+    args = ap.parse_args(argv)
     home = Path(os.environ.get("SENSEI_HOME", Path.home() / ".sensei"))
     executor, trace, switch = local_setup(home)
     fixture = os.environ.get("SENSEI_BRIEF_FIXTURE")
     try:
         app = create_app(executor, trace.path, MemoryStore(home / "memory"), trace,
                          brief_fixture=fixture, brief_dir=home / "briefs", egress_path=home / "egress.jsonl",
-                         kill_switch=switch)
+                         kill_switch=switch, strict=args.strict or None)
     except GatewayConfigError as e:
         raise SystemExit(f"Sensei gateway not started: {e}") from None
+    print(format_posture(app.state.posture), file=sys.stderr, flush=True)
     host = bind_host()
     uvicorn.run(app, host=host, port=int(os.environ.get("SENSEI_GATEWAY_PORT", "8765")))
 

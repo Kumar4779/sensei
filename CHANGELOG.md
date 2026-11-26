@@ -433,3 +433,51 @@ measured agreement record before it is ever allowed to decide.
     interleave runs in one trace, and replay does not separate them yet.
   - **An interrupted API call is sent again on resume.** It may already have
     left the machine.
+
+## Containment self-probe (Slice 32)
+
+Sensei tests the parts of its safety posture it can test, at startup, and
+records the results, failures included.
+
+- **The probe:** `containment.py`, run at gateway startup and standalone as
+  `python -m sensei_core.containment [--strict]`. Each check returns pass,
+  warn or fail, with one line of evidence:
+  - **manifests:** `tools.toml` and `models.toml` are not writable by group or
+    other. World-writable fails; group-writable warns. This is Slice 24's
+    warning promoted to a result.
+  - **ground_truth:** fresh trial sandboxes are built with the bench's own
+    `prepare_trial`, and the Slice 23 hostile probe is re-run from each one:
+    the sandbox tree (including copies of a checker under another name), the
+    working directory's parents, known relative paths, and the environment. A
+    pass says what it is: isolation by construction, not an OS sandbox.
+  - **egress:** stated, never tested by sending. It names the API routes and
+    whether their clients are fakes, and always reports `egress enforcement
+    not built: egress is LOGGED, NOT ENFORCED`, a warn. A test pins this
+    wording, so the probe cannot start claiming enforcement that doesn't
+    exist.
+  - **kill_state:** `killed.json` as it reads now. An engaged switch warns; a
+    present file that is not honoured fails.
+  - **trace_store:** the traces directory and its files are not readable by
+    group or other (Threat 4). World-readable fails; group-readable warns.
+    The evidence includes the `chmod` that fixes it.
+  - **token:** `SENSEI_GATEWAY_TOKEN` is set and at least 16 characters. Only
+    the length is reported.
+- **Where results go:**
+  - one `containment_probe` trace event at startup;
+  - printed when `python -m sensei_core.gateway` starts;
+  - `GET /posture`, which needs the token and re-probes on request (the same
+    structure).
+- **Strict mode:** the default reports and starts, since on a dev machine
+  posture is information. `--strict`, or `SENSEI_STRICT_POSTURE=1`, refuses to
+  start on any fail; warns are allowed. Manifest tamper is governed by Slice
+  24, unchanged.
+- **First real result on the development Mac, 2026-11-25: 4 pass, 1 warn,
+  1 fail.**
+  - **Pass:** manifests (both 644), ground truth (4 tasks, nothing
+    reachable), kill state (not engaged), token (32 characters).
+  - **Warn:** egress (logged, not enforced; both API routes use fake clients).
+  - **Fail: trace_store.** A fresh gateway creates `~/.sensei/traces` as 755
+    and `gateway.jsonl` as 644 under the default umask, so traces are readable
+    by any local user. The probe found a real gap in Sensei itself.
+    `TraceWriter` does not yet create traces owner-only; until it does, run
+    `chmod -R go-rwx ~/.sensei/traces`.

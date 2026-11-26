@@ -87,6 +87,12 @@ evals/               SenseiBench tasks, checkers and published results
   re-running finished steps. `python -m sensei_core.replay <trace>` re-derives
   every recorded decision from the trace alone, with no model call, and shows
   where it differs.
+- **It tests its own posture.** At startup the gateway runs a containment
+  probe: manifest and trace permissions, ground-truth isolation, the kill
+  state, the token, and egress. It records every result, failures included,
+  and serves them at `GET /posture`. Egress is reported as logged, not
+  enforced, because enforcement is not built. `--strict` refuses to start on
+  any failure.
 - **Memory is inspectable files.** Writes are gated, provenance is recorded,
   deletion is provable, and the store is shared with MCP clients through the
   Custodian, which can propose entries but never activate them.
