@@ -345,7 +345,10 @@ machine are unchanged.
   security add-generic-password -a sensei -s sensei-elevenlabs-api-key -U -w
   ```
 
-  A key is read for one request. It never reaches an adapter attribute, an
+  A host without a Keychain chooses the environment explicitly
+  (`key_source="env"`: `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`), as the
+  hosted demo does. The two sources never fall back to each other. A key is
+  read for one request. It never reaches an adapter attribute, an
   error message, a trace or a results file. Provider errors carry the HTTP
   status only, never the response body.
 - **Audio** follows the Slice 3 discipline on the real path:

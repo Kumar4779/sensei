@@ -19,6 +19,14 @@ AUTH = {"X-Sensei-Token": TOKEN}
 
 
 @pytest.fixture(autouse=True)
+def private_state(tmp_path, monkeypatch):
+    """No test ever writes under the real ~/.sensei: every default state and trace path points at tmp_path."""
+    import sensei_demo.server as server
+    monkeypatch.setattr(server, "DEFAULT_STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(server, "DEFAULT_TRACE_DIR", tmp_path / "state" / "traces")
+
+
+@pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     """Any real connection attempt fails the test (the Slice 6 pattern). TestClient needs no socket."""
     def refuse(*args, **kwargs):

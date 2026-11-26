@@ -17,6 +17,12 @@ model yet. Not yet built: real mail and calendar connectors (the brief runs on
 synthetic fixtures), the `frontier_api` client (still a fake), MacPilot's
 planner and permission gate, and the native iOS and Watch apps.
 
+**Live demo:** [sensei-talk.fly.dev](https://sensei-talk.fly.dev). The page
+asks for an access token, which keeps provider spend capped. You talk to
+Sensei by voice. The ledger beside the conversation shows each permission
+decision as it happens: an irreversible action is read back to you and runs
+only after your spoken yes.
+
 ## What makes it different
 
 Two honest differences from closed agents, by design:
