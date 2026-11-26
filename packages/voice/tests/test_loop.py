@@ -1,5 +1,6 @@
 """The reference loop: core's gate reused, per-turn trace records, no audio, clarification over guessing."""
 
+import inspect
 import json
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from sensei_core.trace import read_events
 
 from voice import cli
 from voice.adapters import FakeSTT, ScriptedUtterance
-from voice.world import voice_tools
+from voice.world import VoiceTools, voice_tools
 
 from conftest import say
 
@@ -26,6 +27,34 @@ def test_the_manifest_marks_send_pay_delete_submit_and_approve_irreversible():
     assert gate.decide("send_note", "LOCAL_ONLY").outcome is Outcome.HALT_FOR_APPROVAL
     assert gate.decide("calendar_query", "LOCAL_ONLY").outcome is Outcome.ALLOW
     assert gate.decide("shell", "LOCAL_ONLY").outcome is Outcome.DENY  # not in the voice manifest
+
+
+def _implemented_tools(cls=VoiceTools):
+    """Every tool the voice World implements: VoiceTools dispatches tool <name> to its `_<name>` method."""
+    return {name[1:] for name, member in inspect.getmembers(cls, inspect.isfunction)
+            if name.startswith("_") and not name.startswith("__")}
+
+
+def test_every_implemented_tool_has_a_manifest_entry():
+    # Slice 4, salvaged: a tool with no manifest entry has no tier, so the gate could never decide it.
+    implemented, manifest = _implemented_tools(), set(voice_tools())
+    assert implemented - manifest == set(), "tools implemented without a tools.toml entry"
+    assert manifest - implemented == set(), "tools.toml entries with no implementation"
+    assert len(implemented) == 10
+
+
+def test_the_coverage_check_catches_an_unlisted_tool():
+    class WithExtraTool(VoiceTools):
+        def _wire_money(self, amount):  # implemented, but never added to tools.toml
+            raise AssertionError("never called")
+
+    assert _implemented_tools(WithExtraTool) - set(voice_tools()) == {"wire_money"}
+
+
+def test_the_voice_loop_console_script_resolves_to_the_cli():
+    from importlib.metadata import entry_points
+    (script,) = entry_points(group="console_scripts", name="voice-loop")
+    assert script.value == "voice.cli:main" and script.load() is cli.main
 
 
 def test_the_loop_uses_cores_permission_gate_and_traces_its_decisions(session, trace_path):

@@ -17,6 +17,9 @@ dev = [
     "pytest>=7.4",
 ]
 
+[project.scripts]
+voice-loop = "voice.cli:main"  # the terminal push-to-talk loop (same as python -m voice.cli)
+
 [tool.setuptools]
 packages = ["voice"]
 
