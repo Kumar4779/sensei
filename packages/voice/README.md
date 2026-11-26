@@ -326,7 +326,9 @@ machine are unchanged.
     alternative, so low-confidence clarification runs unchanged on real
     recogniser output.
   - An empty transcript is confidence 0.0, so the loop asks again.
-  - `smart_format` is off, because it rewrites "fifteen dollars" as "$15".
+  - `smart_format` is off by default, because it rewrites "fifteen dollars"
+    as "$15". A caller can opt in with `smart_format=True`. The demo does, so
+    a spoken "invoice two oh four" arrives as "invoice 204".
 - **ElevenLabs TTS** (`eleven_flash_v2_5`, streaming endpoint, one fixed
   default voice):
   - Each reply is synthesized and played with macOS `afplay`.

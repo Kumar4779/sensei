@@ -997,3 +997,50 @@ The fakes stay the default everywhere, and CI stays offline.
   The keys are scoped, so the provider usage counters can't be read.
 - **Tests: 173,** the 145 existing plus 28 new, all offline: mocked provider
   responses, and a fixture that fails any test that opens a socket.
+
+## Talk to Sensei: browser voice and a live permission ledger (Demo Slice 1, #21)
+
+A new package, `packages/demo` (`sensei_demo`), serves a local web page. You
+hold to talk, hear the reply in the page, and watch a live permission ledger
+beside the conversation. Core, the gate, the echo state machine, the parser
+and the frozen task sets are unchanged.
+
+- **Server.** FastAPI, after the gateway's posture:
+  - It binds 127.0.0.1 (LAN is an explicit, warned opt-in).
+  - `SENSEI_DEMO_TOKEN` is required, or it refuses to start. Every data
+    endpoint needs `X-Sensei-Token`, compared in constant time.
+  - Deepgram and ElevenLabs are called server-side with the Keychain keys, so
+    no response, page or stream carries a key.
+  - Audio passes through and is never traced or stored. A $1.00 spend cap
+    applies per server run.
+- **The ledger is the trace.** The session's `TraceWriter` is a `LedgerTrace`
+  that publishes each record after writing it. The page reads it as
+  Server-Sent Events through `fetch`, so the token stays in a header. Each
+  record renders as a step: gate decision, proposed, echoed, approved or
+  declined, executed, verified. Verified is `verify_run`, checked after every
+  turn and traced as `hard_gate_check`. Provider failures are traced as
+  `speech_error`.
+- **Three guided cards** on the synthetic World, labelled as demo data:
+  - the morning brief (read-only);
+  - send the note to Alex (echo, then confirm);
+  - pay invoice 204 (echo, then decline: nothing executes).
+- **An honest mode badge:**
+  - LIVE SPEECH is the default and fails closed without both keys.
+  - SIMULATED (typed input, fake adapters) runs only with `--simulated`.
+  - Each mode refuses the other's input.
+  - Live turns show STT and time-to-first-audio from the trace.
+- **Voice, one opt-in:** `DeepgramSTT(smart_format=True)`. The default stays
+  off, so Slice 6's behaviour and results are unchanged. The demo opts in, so
+  a spoken "invoice two oh four" arrives as "invoice 204", which the parser
+  reads (#16 covers the parser side).
+- **Verified end to end** in Google Chrome with live speech. Note: echoed,
+  approved, executed once, verified. Pay: echoed, declined, nothing executed,
+  verified. Brief: allowed, executed, verified. The visitor's voice was a
+  harness-substituted audio stream, because Chrome hadn't been granted the
+  macOS microphone. Server-side time to first audio was 618–1,173 ms.
+- **CI:** a `demo` job on Python 3.11–3.13, in which a skipped test fails the
+  job.
+- **Tests:** demo 54, all offline (mocked providers, sockets refused). Voice
+  174 (173 plus the `smart_format` opt-in test).
+- **Root README:** the status text now says the Kimi API backend is live and
+  MacPilot Slice 1 is built.
