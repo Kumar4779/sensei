@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sensei-demo"
+version = "0.1.0"
+description = "Talk to Sensei: a local web surface for the voice loop, with a live permission ledger"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = [
+    "sensei_core",   # fastapi, uvicorn and the trace store; install packages/core alongside
+    "sensei-voice",  # the voice loop, the gate wiring and the speech adapters; install packages/voice alongside
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "httpx>=0.27",  # FastAPI's TestClient
+]
+
+[project.scripts]
+sensei-demo = "sensei_demo.__main__:main"
+
+[tool.setuptools]
+packages = ["sensei_demo"]
+
+[tool.setuptools.package-data]
+sensei_demo = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

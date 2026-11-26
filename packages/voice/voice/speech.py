@@ -97,26 +97,31 @@ class DeepgramSTT:
     empty transcript (silence, noise) is returned with confidence 0.0, which the
     loop treats as "didn't catch that".
 
-    `smart_format` is off on purpose: it rewrites "fifteen dollars" as "$15",
+    `smart_format` is off by default: it rewrites "fifteen dollars" as "$15",
     and the measurement should see the recogniser's words, not a formatter's.
+    A caller can opt in (the demo does, so a spoken "invoice two oh four"
+    arrives as "invoice 204"); the parser is the same either way.
     """
 
     name = "deepgram"
     destination_host = "api.deepgram.com"
 
     def __init__(self, model: str = DEFAULT_DEEPGRAM_MODEL, *, language: str = "en", timeout: float = 30.0,
+                 smart_format: bool = False,
                  key: Callable[[], str | None] = lambda: keychain_secret(DEEPGRAM_KEY_SERVICE),
                  opener: Callable[..., Any] = urllib.request.urlopen) -> None:
         self.model = model
         self.language = language
         self.timeout = timeout
+        self.smart_format = smart_format
         self._key = key
         self._open = opener
         self.audio_bytes_seen = 0  # a count, for tests and spend estimates; the bytes are not kept
         self.audio_seconds = 0.0  # what Deepgram billed as the audio's duration, summed
 
     def url(self) -> str:
-        query = {"model": self.model, "language": self.language, "punctuate": "true", "smart_format": "false"}
+        query = {"model": self.model, "language": self.language, "punctuate": "true",
+                 "smart_format": "true" if self.smart_format else "false"}
         return f"{DEEPGRAM_URL}?{urllib.parse.urlencode(query)}"
 
     def transcribe(self, utterance: ScriptedUtterance) -> Transcript:

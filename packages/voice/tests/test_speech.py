@@ -144,6 +144,13 @@ def test_deepgram_sends_the_audio_and_returns_the_transcript_with_its_confidence
     assert stt.audio_bytes_seen == len(AUDIO_MARKER) and stt.audio_seconds == 1.8
 
 
+def test_smart_format_is_off_unless_a_caller_opts_in():
+    off = urllib.parse.parse_qs(urllib.parse.urlsplit(DeepgramSTT(key=lambda: KEY).url()).query)
+    on = urllib.parse.parse_qs(urllib.parse.urlsplit(DeepgramSTT(smart_format=True, key=lambda: KEY).url()).query)
+    assert off["smart_format"] == ["false"] and on["smart_format"] == ["true"]
+    assert isinstance(make_stt("deepgram", lookup=lambda s: KEY, smart_format=True), DeepgramSTT)
+
+
 def test_an_empty_deepgram_transcript_is_zero_confidence_so_the_loop_asks_again(trace_path):
     stt, _ = deepgram(deepgram_reply("", 0.0))
     session = VoiceSession(TraceWriter(trace_path, run_id="r", session_id="s"), stt=stt)

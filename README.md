@@ -10,9 +10,12 @@ what matters, and asks before it acts.
 **Status:** working core, measured in public. The gateway, router, permission
 gate, memory store (served over MCP), verifier, morning brief and phone-first
 web UI run locally today, and every change ships with SenseiBench numbers.
-Not yet built: real mail and calendar connectors (the brief runs on synthetic
-fixtures), API model clients, MacPilot (computer use), and the native iOS and
-Watch apps.
+One API backend is live: the `cheap_api` route calls Kimi K3 (below).
+MacPilot's Slice 1 is built: one verified browser step (a screenshot, a
+click, a deterministic end-state check and an audit log), with no planner or
+model yet. Not yet built: real mail and calendar connectors (the brief runs on
+synthetic fixtures), the `frontier_api` client (still a fake), MacPilot's
+planner and permission gate, and the native iOS and Watch apps.
 
 ## What makes it different
 
@@ -69,7 +72,7 @@ config, yours to change.
 ```
 packages/core/       sensei_core: gateway, router, executor, permission gate,
                      verifier, memory store + Custodian MCP server, brief, bench
-packages/macpilot/   Sensei's hands: verified computer use (not built yet)
+packages/macpilot/   Sensei's hands: verified computer use (Slice 1: one verified browser step)
 packages/skills/     SkillForge-format skills
 apps/mac/, apps/ios/ native apps (placeholders)
 evals/               SenseiBench tasks, checkers and published results
