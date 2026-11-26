@@ -645,8 +645,8 @@ detection, run records, the egress log and the containment probe.
   - escalation unchanged, the key never leaking, and the probe line.
   - The Slice 29/30/31 cap and shadow tests now take their amounts from the
     shipped rate instead of a hard-coded $0.001.
-- **Live check (2026-11-26), one `API_OK` `/run` through the gateway on
-  `~/.sensei`, not verified end to end:**
+- **First live attempt (2026-11-26), one `API_OK` `/run` through the gateway
+  on `~/.sensei`, before the account had a balance:**
   - **The result:** Moonshot returned **HTTP 429
     `exceeded_current_quota_error`**. The key was accepted (no 401), but the
     account has no quota or balance, so no completion came back.
@@ -664,4 +664,23 @@ detection, run records, the egress log and the containment probe.
     the rules `cheap_api`. That is the first real API-route decision, but not
     yet agreement data on a completed call.
   - **The key** was in none of the files the run wrote.
-  - **To be re-run** once the Moonshot account has a balance.
+  - **Re-run** after the owner added a balance (below).
+- **Live check completed (2026-11-26):** one `API_OK` / `simple` `/run`
+  through the gateway on `~/.sensei`, with the real Keychain key and no code
+  changes.
+  - **The run:** route `cheap_api` (`kimi-k3`); status `completed` in
+    2,982 ms. It was not escalated or retried.
+  - **The answer** was a real completion from `choices[0].message.content`
+    (31 characters), not reasoning text.
+  - **The egress entry:** `destination_host: api.moonshot.ai`, `ok: true`,
+    `request_bytes: 53`, `response_bytes: 31`, `prompt_sha256:
+    sha256:ea4c8a15…9f039b`. That is the digest only, with no content.
+  - **Cap state:** about $0.00033 estimated of the $1.00 daily cap (0.03%),
+    so no spend alert fired.
+  - **`shadow_report`:** 2 runs, 0 agree (0.0%), est diff -$0.000420. This
+    run is the first completed API-route call in the agreement record. The
+    rules picked `cheap_api`; the shadow picked `local_private`.
+  - **The key** was in none of the files the run wrote.
+  - **The `/run` response shows `verified: false`** because `/run` passes no
+    checks; it does not mean the completion was rejected.
+  - **Issue #1 is closed:** every acceptance criterion is met.
