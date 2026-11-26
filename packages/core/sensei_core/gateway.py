@@ -354,8 +354,8 @@ def create_app(
 
 
 def local_setup(home: Path) -> tuple[Executor, TraceWriter, KillSwitch]:
-    """The real local executor over a Sensei home: Ollama for local_private, fakes for API routes."""
-    from sensei_core.clients import OllamaClient
+    """The real executor over a Sensei home: Ollama for local_private, Kimi for cheap_api, a fake frontier."""
+    from sensei_core.clients import KimiClient, OllamaClient
     from sensei_core.config import load_budgets, load_models
     from sensei_core.router import FakeClient, Router
 
@@ -370,7 +370,7 @@ def local_setup(home: Path) -> tuple[Executor, TraceWriter, KillSwitch]:
         Router(routes, trace=trace),
         {
             "local_private": OllamaClient.for_route(routes["local_private"]),
-            "cheap_api": FakeClient("fake cheap_api response"),
+            "cheap_api": KimiClient.for_route(routes["cheap_api"]),  # Slice 35: the first real backend
             "frontier_api": FakeClient("fake frontier_api response"),
         },
         trace=trace,
@@ -383,7 +383,7 @@ def local_setup(home: Path) -> tuple[Executor, TraceWriter, KillSwitch]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Serve a real local setup on 127.0.0.1: Ollama for local_private, fakes for API routes."""
+    """Serve a real local setup on 127.0.0.1: Ollama for local_private, Kimi for cheap_api, a fake frontier_api."""
     import argparse
 
     import uvicorn

@@ -225,10 +225,11 @@ def test_replay_of_an_api_run_with_failure_escalation_caps_and_alerts_matches(ho
                 raise ConnectionError("outage")
             return "ok"
 
-    ex, trace = build(home, FakeClient("local"), budgets=SpendCaps(daily_cap_usd=0.0045))
+    rate = load_models()["cheap_api"].est_cost_per_1k_tokens  # one 4000-char call costs about this
+    ex, trace = build(home, FakeClient("local"), budgets=SpendCaps(daily_cap_usd=4.5 * rate))
     ex._clients["cheap_api"] = FailOnce()
     ex.run_once("draft a plan", "API_OK", "standard")  # fails on cheap, escalates to frontier
-    for i in range(6):  # ~$0.001 each against a $0.0045 cap: alerts at 50% and 80%, then refusals
+    for i in range(6):  # ~rate each against a 4.5 x rate cap: alerts at 50% and 80%, then refusals
         try:
             ex.run_once("x" * 3996 + f"{i:04d}", "API_OK", "simple", max_cost_usd=1.0)
         except Exception:

@@ -564,3 +564,104 @@ regression in any one writer is caught the way the traces one was.
   pass, 1 warn (egress, not enforced), 0 fail, 3 skipped. `traces/` and
   `memory/` pass. `runs/`, `briefs/` and `egress.jsonl` have not been written
   on this machine yet, so they are `not_created`.
+
+## First real backend: Kimi behind the gates (Slice 35, #1)
+
+The `cheap_api` route now calls a real model. Every existing gate still applies:
+sensitivity routing, no silent fallback, spend caps, the kill switch, loop
+detection, run records, the egress log and the containment probe.
+`frontier_api` stays a fake client, so there is deliberately one real backend.
+
+- **`KimiClient` (`clients.py`):** the same `complete(prompt) -> str` interface
+  as `OllamaClient`, standard library only.
+  - It sends `POST https://api.moonshot.ai/v1/chat/completions` with
+    `Authorization: Bearer <key>` and the body `{model, messages: [{role:
+    user}], stream: false, max_completion_tokens: 4096, reasoning_effort:
+    "low"}`.
+  - It returns `choices[0].message.content` and never `reasoning_content`.
+  - `temperature`, `top_p` and `n` are left out because Moonshot fixes them
+    for K3-series models.
+  - The default timeout is 120 s.
+- **What was used, verified against Moonshot's docs on 2026-11-26:**
+  - **Base URL and path:** `https://api.moonshot.ai/v1` and
+    `/chat/completions`
+    ([API reference](https://platform.kimi.ai/docs/api/chat),
+    [quick start](https://platform.kimi.ai/docs/guide/start-using-kimi-api)).
+    The `platform.moonshot.ai` docs now redirect to `platform.kimi.ai`.
+  - **Model id:** `kimi-k3`, from the
+    [model list](https://platform.kimi.ai/docs/models.md). The docs'
+    flagship is `kimi-k3.1-pro`, but its price could not be read: the
+    [pricing page](https://platform.kimi.ai/docs/pricing/chat) rendered its
+    tables empty. `kimi-k3` is the one current model with a published price,
+    so it is the one used; no price was guessed.
+  - **Pricing:** $3.00 / MTok uncached input, $0.30 / MTok cached input,
+    $15.00 / MTok output, from Moonshot's
+    [K3 announcement](https://forum.moonshot.ai/t/kimi-k3-is-here-our-most-capable-model/480)
+    (2026-07-22). That is Moonshot's own forum, not the docs pricing table.
+  - **`est_cost_per_1k_tokens = 0.015`:** the output price applied to every
+    estimated token, an upper bound on visible tokens. Hidden reasoning
+    tokens are not counted; `max_completion_tokens` bounds them per call.
+    Real billed usage is on the Moonshot console.
+- **Credentials (Threat 6), `credentials.py`:**
+  - A broker reads the key at call time from the macOS Keychain (service
+    `sensei-kimi-api-key`, account `sensei`) via `security
+    find-generic-password`.
+  - It never reads the repo, `models.toml` or the environment, and the key is
+    not kept on the client.
+  - Error messages carry only the HTTP status and Moonshot's error *type*,
+    never the response body (which can echo a request) and never the key. A
+    test proves the key reaches no trace, egress record, run record or error,
+    including a key that matches none of the trace writer's redaction
+    patterns.
+- **Key absent fails closed:**
+  - `KimiKeyMissing` is traced as `route_failure` (`error_class:
+    key_absent`) and the run stops.
+  - It is not retried and not escalated, because re-routing would substitute
+    another backend. This is the one new rule in `Executor`: an error marked
+    `fail_closed` stops the run after it is traced.
+- **Other failures keep the Slice 23 rules unchanged:**
+  - The classes are `auth_failed` (401/403), `rate_limited` (429),
+    `server_error` (5xx), `bad_request`, `timeout`, `unreachable` and
+    `bad_response`.
+  - A simple task retries the same route once; a standard task escalates to
+    `frontier_api`; nothing falls back to local.
+- **Config (`models.toml`):**
+  - `cheap_api` is `model = "kimi-k3"` at `est_cost_per_1k_tokens = 0.015`.
+  - The `frontier_api` placeholder estimate rises from 0.01 to 0.05, so the
+    frontier tier stays above the real cheap price. Otherwise the shadow
+    policy would prefer the fake frontier after a failure.
+  - **`[budgets] daily_cap_usd = 1.00`:** a conservative cap for the first
+    real-backend period. It is config, the owner's to change. The Slice 29
+    spend alerts at 50% and 80% of it now have real spend to fire on.
+- **The probe** now reports `cheap_api (real client), frontier_api (fake
+  client)`. Egress is still LOGGED, NOT ENFORCED.
+- **Tests (no network in CI):** contract tests against a stubbed HTTP layer
+  cover:
+  - request shape, response parsing and malformed replies;
+  - each HTTP status mapping, the timeout, and unreachable;
+  - the key read on every call, and key-absent failing closed before any
+    request;
+  - the Keychain broker;
+  - escalation unchanged, the key never leaking, and the probe line.
+  - The Slice 29/30/31 cap and shadow tests now take their amounts from the
+    shipped rate instead of a hard-coded $0.001.
+- **Live check (2026-11-26), one `API_OK` `/run` through the gateway on
+  `~/.sensei`, not verified end to end:**
+  - **The result:** Moonshot returned **HTTP 429
+    `exceeded_current_quota_error`**. The key was accepted (no 401), but the
+    account has no quota or balance, so no completion came back.
+  - **The route and traces:** the route was `cheap_api` (`kimi-k3`). The
+    trace shows `route_failure` (`rate_limited`), `run_retried` on the same
+    route, a second `route_failure`, then `run_failed`; there was no
+    escalation for a simple task.
+  - **The first real `egress.jsonl` entries (two, one per attempt):**
+    `destination_host: api.moonshot.ai`, `request_bytes: 53`,
+    `response_bytes: 0`, `ok: false`, `prompt_sha256:
+    sha256:ea4c8a15…9f039b`. The file is mode 600.
+  - **Cap state:** $0.00 of the $1.00 daily cap spent; nothing was billed or
+    estimated.
+  - **`shadow_report`:** 1 run, 0 agree. The shadow picked `local_private`,
+    the rules `cheap_api`. That is the first real API-route decision, but not
+    yet agreement data on a completed call.
+  - **The key** was in none of the files the run wrote.
+  - **To be re-run** once the Moonshot account has a balance.

@@ -51,6 +51,19 @@ gateway binds 127.0.0.1 only. To reach it from a phone, publish it to your own
 tailnet with `tailscale serve --bg 8765`; see [CHANGELOG.md](CHANGELOG.md),
 Slice 22.
 
+**One real API backend (optional).** The `cheap_api` route calls Kimi K3
+through Moonshot's API. The key is read at call time from the macOS Keychain,
+never from the repo, `models.toml` or the environment:
+
+```
+security add-generic-password -a sensei -s sensei-kimi-api-key -U -w   # prompts for the key
+```
+
+With no key, that route fails closed and the run stops; nothing is re-routed.
+`frontier_api` is still a fake client. A conservative `daily_cap_usd = 1.00`
+in `packages/core/sensei_core/models.toml` caps estimated API spend; it is
+config, yours to change.
+
 ## Architecture
 
 ```
@@ -88,8 +101,8 @@ evals/               SenseiBench tasks, checkers and published results
   every recorded decision from the trace alone, with no model call, and shows
   where it differs.
 - **It tests its own posture.** At startup the gateway runs a containment
-  probe: manifest and trace permissions, ground-truth isolation, the kill
-  state, the token, and egress. It records every result, failures included,
+  probe: manifest permissions, the permissions of every content store,
+  ground-truth isolation, the kill state, the token, and egress. It records every result, failures included,
   and serves them at `GET /posture`. Egress is reported as logged, not
   enforced, because enforcement is not built. `--strict` refuses to start on
   any failure.

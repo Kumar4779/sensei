@@ -1,11 +1,13 @@
 # Sensei routing table — model is a config, never code (DESIGN.md Principle 1).
-# local_private is pinned to qwen3:8b (Decision 3 as amended, 16 GB hardware); API routes are placeholders.
+# local_private is pinned to qwen3:8b (Decision 3 as amended, 16 GB hardware).
+# cheap_api is Kimi via the Moonshot API (Slice 35, the first real backend); frontier_api is a placeholder.
 #
 # tier:        local | cheap_api | frontier_api
 # sensitivity: classes a route may receive (DESIGN.md Threat 5).
 #              LOCAL_ONLY content may only go to a local tier.
 # max_sensitivity:        most sensitive class the route may receive.
-# est_cost_per_1k_tokens: USD placeholder for cost-aware routing; not real pricing.
+# est_cost_per_1k_tokens: estimated USD per 1k tokens, applied to input and output alike.
+#                         Placeholder for frontier_api; from published pricing for cheap_api.
 # think (optional):      Ollama thinking mode; omit to use the server default.
 
 [routes.local_private]
@@ -21,21 +23,30 @@ est_cost_per_1k_tokens = 0.0
 # Measured on one summarisation task; not evidence for other task types.
 think = false
 
+# Slice 35: Kimi K3 via https://api.moonshot.ai/v1/chat/completions. Key from the macOS
+# Keychain (service sensei-kimi-api-key, account sensei); never in this file.
+# Published price (Moonshot's K3 announcement, 2026-07-22): $3.00 / MTok uncached input,
+# $0.30 cached input, $15.00 / MTok output. The estimate applies the output price to
+# every token: an upper bound on visible tokens, so the spend caps err on the safe side.
+# It does not count hidden reasoning tokens (bounded per call by the client's
+# max_completion_tokens). Real billed usage is on the Moonshot console.
 [routes.cheap_api]
 provider = "kimi"
-model = "kimi-placeholder"
+model = "kimi-k3"
 tier = "cheap_api"
 sensitivity = ["API_OK"]
 max_sensitivity = "API_OK"
-est_cost_per_1k_tokens = 0.001
+est_cost_per_1k_tokens = 0.015
 
+# Placeholder (no frontier backend yet). Slice 35 raised its estimate from 0.01 to 0.05 so it
+# stays above the real cheap_api price: the frontier tier is the expensive one.
 [routes.frontier_api]
 provider = "frontier"
 model = "frontier-placeholder"
 tier = "frontier_api"
 sensitivity = ["API_OK"]
 max_sensitivity = "API_OK"
-est_cost_per_1k_tokens = 0.01
+est_cost_per_1k_tokens = 0.05
 
 # Custodian (Slice 21): embeddings for the memory index, a DERIVED layer rebuilt
 # from the entry files. Thresholds measured on nomic-embed-text, no task prefixes
@@ -54,4 +65,7 @@ dedup_threshold = 0.88
 #   daily_cap_usd = 1.00
 #   monthly_cap_usd = 20.00
 # A spend_alert is traced once per day at 50% and at 80% of daily_cap_usd.
+# Slice 35: a conservative $1.00 a day for the first real-backend period. This is
+# config, the owner's to change.
 [budgets]
+daily_cap_usd = 1.00

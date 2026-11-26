@@ -14,9 +14,11 @@ from sensei_core.router import FakeClient, Router
 from sensei_core.trace import TraceWriter, read_events
 
 FIXTURE = Path(__file__).resolve().parents[3] / "evals" / "tasks" / "morning-brief-001" / "fixture"
-# 4000 chars = 1000 estimated input tokens = $0.001 on cheap_api (est_cost_per_1k_tokens 0.001).
+# 4000 chars = 1000 estimated input tokens = RATE USD on cheap_api. Amounts below are in units of
+# RATE (the shipped est_cost_per_1k_tokens), so the cap arithmetic holds whatever the price.
+RATE = load_models()["cheap_api"].est_cost_per_1k_tokens
 PROMPT = "x" * 4000
-CALL_USD = 0.001 + 3 / 1000 * 0.001  # input plus the 3-token "cheap answer" reply
+CALL_USD = RATE + 3 / 1000 * RATE  # input plus the 3-token "cheap answer" reply
 
 
 @pytest.fixture
@@ -78,8 +80,12 @@ def test_executor_refuses_every_call_while_killed_local_routes_included(tmp_path
 
 
 def test_budgets_config_defaults_to_no_cap_and_rejects_typos(tmp_path):
-    assert load_budgets() == SpendCaps(None, None)  # the shipped models.toml sets no cap
-    shipped = DEFAULT_MODELS_PATH.read_text()
+    # Slice 35: the shipped models.toml sets a conservative $1.00 daily cap, and no monthly cap.
+    assert load_budgets() == SpendCaps(1.0, None)
+    shipped_without_caps = DEFAULT_MODELS_PATH.read_text().replace("daily_cap_usd = 1.00\n", "")
+    (tmp_path / "no-caps.toml").write_text(shipped_without_caps)
+    assert load_budgets(tmp_path / "no-caps.toml") == SpendCaps(None, None)  # unset still means no cap
+    shipped = shipped_without_caps
     for extra, ok in (("daily_cap_usd = 1.5\nmonthly_cap_usd = 20", True), ("daily_cap = 1.5", False),
                       ("daily_cap_usd = -1", False), ("daily_cap_usd = true", False)):
         path = tmp_path / f"models-{len(extra)}.toml"
@@ -97,7 +103,7 @@ def test_caps_need_a_trace_to_count_against():
 
 
 def test_daily_cap_refuses_before_the_call_is_sent(trace):
-    ex, c = executor(trace, budgets=SpendCaps(daily_cap_usd=0.0025))
+    ex, c = executor(trace, budgets=SpendCaps(daily_cap_usd=2.5 * RATE))
     ex.run_once(prompt(1), "API_OK", "simple")
     ex.run_once(prompt(2), "API_OK", "simple")
     with pytest.raises(SpendCapReached) as err:
@@ -105,7 +111,7 @@ def test_daily_cap_refuses_before_the_call_is_sent(trace):
     assert isinstance(err.value, BudgetExceeded) and err.value.cap == "daily"
     assert len(c["cheap_api"].prompts) == 2  # the FakeClient never saw the third prompt
     [ev] = events(trace, "spend_cap_reached")
-    assert ev["payload"]["cap"] == "daily" and ev["payload"]["cap_usd"] == 0.0025
+    assert ev["payload"]["cap"] == "daily" and ev["payload"]["cap_usd"] == pytest.approx(2.5 * RATE)
     assert ev["payload"]["spent_est_cost_usd"] == pytest.approx(2 * CALL_USD)
     assert len(events(trace, "model_call")) == 2
 
@@ -113,16 +119,16 @@ def test_daily_cap_refuses_before_the_call_is_sent(trace):
 def test_monthly_cap_counts_this_month_only(trace):
     now = datetime.now(timezone.utc)
     last_month = now.replace(day=1) - timedelta(days=1)
-    for when, usd in ((last_month, 50.0), (now, 0.001)):  # earlier spend from the ledger
+    for when, usd in ((last_month, 50.0), (now, RATE)):  # earlier spend from the ledger
         record = {"timestamp": when.isoformat(), "event_type": "model_call",
                   "payload": {"route": "cheap_api", "est_cost_usd": usd}}
         with trace.path.open("a") as f:
             f.write(json.dumps(record) + "\n")
-    ex, c = executor(trace, budgets=SpendCaps(monthly_cap_usd=0.0015))
+    ex, c = executor(trace, budgets=SpendCaps(monthly_cap_usd=1.5 * RATE))
     with pytest.raises(SpendCapReached) as err:
         ex.run_once(prompt(1), "API_OK", "simple")
     assert err.value.cap == "monthly" and err.value.period == now.date().isoformat()[:7]
-    assert err.value.accumulated_cost_usd == pytest.approx(0.001)  # last month's $50 not counted
+    assert err.value.accumulated_cost_usd == pytest.approx(RATE)  # last month's $50 not counted
     assert c["cheap_api"].prompts == []
 
 
@@ -145,14 +151,14 @@ def test_no_caps_is_the_old_behaviour(trace):
 
 
 def test_alerts_fire_once_at_50_and_80_percent(trace):
-    ex, c = executor(trace, budgets=SpendCaps(daily_cap_usd=0.0045))
+    ex, c = executor(trace, budgets=SpendCaps(daily_cap_usd=4.5 * RATE))
     percents = []
     for i in range(4):  # spend after each call: 22%, 45%, 67%, 89%
         ex.run_once(prompt(i), "API_OK", "simple")
         percents.append([e["payload"]["percent"] for e in events(trace, "spend_alert")])
     assert percents == [[], [], [50], [50, 80]]
     # A new executor over the same trace (a restart) does not re-send today's alerts.
-    ex2, _ = executor(trace, budgets=SpendCaps(daily_cap_usd=0.0045))
+    ex2, _ = executor(trace, budgets=SpendCaps(daily_cap_usd=4.5 * RATE))
     with pytest.raises(SpendCapReached):
         ex2.run_once(prompt(9), "API_OK", "simple")
     assert [e["payload"]["percent"] for e in events(trace, "spend_alert")] == [50, 80]
@@ -160,7 +166,7 @@ def test_alerts_fire_once_at_50_and_80_percent(trace):
 
 
 def test_one_call_past_both_thresholds_fires_both_once(trace):
-    ex, _ = executor(trace, budgets=SpendCaps(daily_cap_usd=0.00125))
+    ex, _ = executor(trace, budgets=SpendCaps(daily_cap_usd=1.25 * RATE))
     ex.run_once(prompt(1), "API_OK", "simple")  # 80.2% in one call
     assert [e["payload"]["percent"] for e in events(trace, "spend_alert")] == [50, 80]
 

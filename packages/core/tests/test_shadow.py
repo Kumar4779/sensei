@@ -88,7 +88,7 @@ def test_the_rule_cheapest_eligible_route_with_ties_to_the_rules():
         req = RouteRequest(sensitivity, difficulty, prior_failures=failures)
         return policy.decide(req, router.decide(req), chars).route
 
-    assert pick("API_OK", "simple") == "local_private"  # $0.00 beats cheap_api's $0.001
+    assert pick("API_OK", "simple") == "local_private"  # $0.00 beats cheap_api's price
     assert pick("API_OK", "standard") == "local_private"
     assert pick("API_OK", "hard") == "frontier_api"
     assert pick("LOCAL_ONLY", "hard") == "local_private"
@@ -121,7 +121,7 @@ def test_shadow_decision_fields(trace):
         "policy": POLICY, "task_family": "demo", "sensitivity_class": "API_OK", "difficulty": "simple",
         "prior_failures": 0, "prompt_chars": 4000, "rules_route": "cheap_api", "shadow_route": "local_private",
         "agree": False, "eligible": ["cheap_api", "frontier_api", "local_private"],
-        "rules_est_cost_usd": pytest.approx(0.001), "shadow_est_cost_usd": 0.0,
+        "rules_est_cost_usd": pytest.approx(load_models()["cheap_api"].est_cost_per_1k_tokens), "shadow_est_cost_usd": 0.0,
         "cost_basis": first["cost_basis"],
     }
     assert "input tokens" in first["cost_basis"]

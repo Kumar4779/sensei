@@ -350,6 +350,10 @@ class Executor:
                     )
                     if failures > max_retries:
                         raise
+                    if getattr(error, "fail_closed", False):
+                        # Slice 35: the route is unavailable (no credential). The run stops here:
+                        # retrying cannot help, and re-routing would substitute another backend.
+                        raise
                     if sensitivity_class == "LOCAL_ONLY":
                         # LOCAL_ONLY retries reuse the same local route; never re-routed.
                         retry = decision
