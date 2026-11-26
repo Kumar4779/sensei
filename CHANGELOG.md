@@ -366,3 +366,70 @@ measured agreement record before it is ever allowed to decide.
   simple and standard work, where it picks the free local route over
   `cheap_api`. Whether local is good enough there is the open question this
   record is meant to answer, once API_OK tasks exist.
+
+## Crash-safe resume and deterministic replay (Slice 31)
+
+- **Run records** (`runs.py`).
+  - **What a run is:** an Executor run scope. That is one `run_once`, or a
+    workflow such as the brief's draft and repair.
+  - **What it writes:** `<SENSEI_HOME>/runs/<run_id>.json`, holding the run
+    id, task family, the workflow that can re-execute it, ordered steps
+    (route, model, prompt SHA-256, estimated cost, outcome), the verifier
+    reports, and the final status (`completed`, `failed` or `killed`).
+  - **When it writes:** each step is written `in_flight` before its model call
+    and updated after it, and every write is atomic. A process that dies
+    therefore leaves the interrupted step as the record's last.
+  - **Crashed is inferred:** a record still `in_progress` that another process
+    wrote.
+  - **What is stored:** prompts never, only digests. Responses are kept only
+    for resumable runs, so a resume can reuse them.
+  - **In the trace:** every run scope is now bracketed by `run_opened` (run
+    id, family, resumed, the route models and spend caps in force) and
+    `run_closed` (status, error). `run_started` and `model_call` carry the
+    prompt digest.
+- **Resume:** `python -m sensei_core.resume <run_id>`, or the gateway's
+  `POST /runs/<id>/resume`.
+  - **How it works:** the run's workflow is re-executed from its recorded
+    params, and each recorded step (same route, same prompt digest) is served
+    from the record instead of calling the model. Completed steps never run
+    twice. The interrupted step is marked `interrupted` and runs again live.
+  - **On the record:** new steps carry `resumed: true`, and the record gains a
+    `resumes` entry.
+  - **Divergence:** a resumed run whose re-derived call differs from the
+    recorded one stops with `ResumeDiverged`, rather than guessing.
+  - **Clean errors, not re-runs:** resuming a completed or failed run, a run
+    still live in this process, or a run without a workflow.
+  - **The same gates as a new run:** the kill switch and the manifest guard
+    apply at the endpoint and on every model call.
+  - **What can resume today:** the gateway brief is the resumable workflow
+    (`workflows.py`). A plain `/run` prompt is never stored, so those runs are
+    recorded but not resumable.
+- **Replay:** `python -m sensei_core.replay <trace_file>`. It makes no model
+  call and writes nothing.
+  - **What it re-derives,** from the trace's own inputs, using the same code
+    that decided:
+    - route choices, retries and escalations, and shadow decisions;
+    - budget, spend-cap and loop halts, and spend alerts;
+    - each model call's token and cost estimates;
+    - verifier verdicts (all checks must pass);
+    - run completions, repairs, brief summaries, and each run's close status.
+  - **What it reports:** MATCH, or the first divergence, with its line,
+    decision number, and each field as re-derived and as recorded.
+  - **Crashes:** a process that died mid-run shows as a crashed run, not a
+    divergence.
+  - **Config:** if `models.toml` differs from the digest the trace recorded,
+    replay says so.
+- **Verified live:**
+  - **A real brief** on `qwen3:8b` replays to MATCH, and resuming that
+    completed run is refused.
+  - **A real crash:** the gateway was killed with `kill -9` while a step was in
+    flight. The resume ran only that step again, completed verified, and the
+    whole trace (crash plus resume) replays to MATCH.
+- **Limits:**
+  - **Replay outcomes are outside facts.** Whether a call succeeded, a reply's
+    length and each check's result are taken as recorded. Replay proves the
+    decisions follow from them, not that they were true.
+  - **Interleaved runs aren't separated.** Concurrent gateway requests
+    interleave runs in one trace, and replay does not separate them yet.
+  - **An interrupted API call is sent again on resume.** It may already have
+    left the machine.

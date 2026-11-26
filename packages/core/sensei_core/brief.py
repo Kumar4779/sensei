@@ -375,6 +375,7 @@ def build_brief(
         )
         out.write_text(render(run.response), encoding="utf-8")
         report = verifier.verify(checks_for(data, out))
+        executor.note_checks(report)  # Slice 31: checks go in the run record
         if report.passed or not repair:
             return BriefResult(out, report.passed, report, run, attempts=1, runs=(run,))
 
@@ -385,6 +386,7 @@ def build_brief(
         )
         out.write_text(render(second.response), encoding="utf-8")
         final = verifier.verify(checks_for(data, out))
+        executor.note_checks(final)  # Slice 31: checks go in the run record
         if trace is not None:
             trace.write("repair_attempted", {"failed_labels": labels, "verified": final.passed})
         return BriefResult(out, final.passed, final, second, attempts=2, first_report=report, runs=(run, second))

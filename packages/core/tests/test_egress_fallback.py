@@ -68,7 +68,7 @@ def test_escalation_exhausted_fails_the_run_and_never_touches_local(trace):
     failures = [(e["payload"]["route"], e["payload"]["error_class"]) for e in events(trace, "route_failure")]
     assert failures == [("cheap_api", "ConnectionError"), ("frontier_api", "TimeoutError")]
     assert clients["local_private"].prompts == []
-    assert [e["event_type"] for e in events(trace)][-1] == "run_failed"
+    assert [e["event_type"] for e in events(trace)][-2:] == ["run_failed", "run_closed"]
 
 
 def test_simple_task_retries_the_same_route_only(trace):

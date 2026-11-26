@@ -81,6 +81,12 @@ evals/               SenseiBench tasks, checkers and published results
   alongside the rules Router on every run, inside the same guardrails, but only
   the rules decision executes. `python -m sensei_core.shadow_report` prints the
   agreement record and what the shadow would have saved or cost.
+- **Runs survive crashes, and traces can be audited.** Every run keeps a
+  crash-safe record. `python -m sensei_core.resume <run_id>` (or
+  `POST /runs/<id>/resume`) continues a crashed or killed run without
+  re-running finished steps. `python -m sensei_core.replay <trace>` re-derives
+  every recorded decision from the trace alone, with no model call, and shows
+  where it differs.
 - **Memory is inspectable files.** Writes are gated, provenance is recorded,
   deletion is provable, and the store is shared with MCP clients through the
   Custodian, which can propose entries but never activate them.

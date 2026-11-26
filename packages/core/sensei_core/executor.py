@@ -4,6 +4,11 @@ Implements the Agent Runtime's Router -> Executor step (DESIGN.md §2)
 and Threat 7: run budgets, cost accounting, and (Slice 29) daily and monthly
 spend caps with alerts, loop detection, and a kill-switch check before every
 model call.
+
+Slice 31: every top-level run scope is bracketed by run_opened / run_closed
+trace events and, given a RunStore, writes a crash-safe run record. A resumed
+run re-executes its workflow, but each recorded step (same route, same prompt
+digest) is served from the record instead of calling the model again.
 Prompt and response text are never written to the trace, only their
 lengths (DESIGN.md Threat 4).
 """
@@ -12,6 +17,7 @@ from __future__ import annotations
 
 import math
 import threading
+import uuid
 import time
 from collections import Counter
 from contextlib import contextmanager
@@ -24,6 +30,7 @@ from sensei_core.egress import API_TIERS, EgressLog, destination_host, prompt_di
 from sensei_core.killswitch import KillSwitch, KillSwitchEngaged
 from sensei_core.ledger import CostLedger
 from sensei_core.manifests import ManifestGuard, ManifestTamperError
+from sensei_core.runs import PROCESS_ID, ResumeDiverged, RunStore
 from sensei_core.router import ModelClient, RouteDecision, RouteRequest, Router, RoutingError
 from sensei_core.shadow import COST_BASIS as SHADOW_COST_BASIS
 from sensei_core.shadow import ShadowPolicy, est_input_cost
@@ -77,6 +84,14 @@ class LoopDetected(RuntimeError):
                          f"{successful_calls} times in this run")
 
 
+class ReplayedFailure(RuntimeError):
+    """A resumed run reached a step that failed originally; the failure is replayed, not retried live."""
+
+    def __init__(self, error_class: str) -> None:
+        self.error_class = error_class
+        super().__init__(f"recorded failure replayed: {error_class}")
+
+
 class VerificationFailed(RuntimeError):
     """The model call succeeded but the verifier rejected the resulting state."""
 
@@ -117,6 +132,7 @@ class Executor:
         *,
         budgets: SpendCaps | None = None,
         kill_switch: KillSwitch | None = None,
+        runs: RunStore | None = None,
     ) -> None:
         self._router = router
         self._clients = dict(clients)
@@ -134,25 +150,94 @@ class Executor:
         self._scope = threading.local()  # per-thread: the gateway serves requests concurrently
         # Slice 30: decides on every run in shadow; never executed, never calls a model.
         self.shadow = ShadowPolicy(router.routes)
+        self.runs = runs  # Slice 31: crash-safe run records; None = no records (tests, library use)
 
     @contextmanager
-    def run_scope(self, task_family: str | None = None) -> Iterator[None]:
-        """One run for loop detection. Calls inside share a count of successful identical calls.
+    def run_scope(
+        self,
+        task_family: str | None = None,
+        *,
+        workflow: dict | None = None,
+        resume: dict | None = None,
+    ) -> Iterator[None]:
+        """One run. Calls inside share a loop-detection count, a task family and a run record.
 
         A multi-call workflow (a brief's draft and repair, an agent loop) wraps its calls in one
         scope; run_once opens its own scope when none is active. Nested scopes join the outer one,
         and keep its task_family (recorded on shadow decisions; the bench sets the task id).
+
+        workflow ({"kind", "params"}) makes the run resumable. resume is a loaded run record:
+        its ok/error steps are served in order instead of calling the model (Slice 31).
         """
-        if getattr(self._scope, "counts", None) is not None:
+        s = self._scope
+        if getattr(s, "counts", None) is not None:
+            if resume is not None:
+                raise RuntimeError("a run cannot be resumed inside another run")
             yield
             return
-        self._scope.counts = Counter()
-        self._scope.family = task_family
+        record: dict | None = None
+        replay: list[dict] = []
+        if resume is not None:
+            if self.runs is None:
+                raise RuntimeError("resuming a run needs run records (Executor(runs=...))")
+            record = resume
+            for step in record["steps"]:
+                if step["outcome"] == "in_flight":
+                    step["outcome"] = "interrupted"  # the point of interruption; executed again, live
+            replay = [step for step in record["steps"] if step["outcome"] in ("ok", "error")]
+            record["resumes"].append({"at": datetime.now(timezone.utc).isoformat(), "process": PROCESS_ID,
+                                      "reused_steps": len(replay)})
+            record["status"], record["error"], record["process"] = "in_progress", None, PROCESS_ID
+            self.runs.save(record)
+            task_family = record["task_family"]
+        elif self.runs is not None:
+            record = self.runs.create(task_family, workflow)
+        s.counts, s.family, s.record, s.replay, s.cursor, s.halt = Counter(), task_family, record, replay, 0, None
+        s.run_id = record["run_id"] if record is not None else uuid.uuid4().hex[:16]
+        caps = self._budgets
+        self._event("run_opened", {
+            "run_id": s.run_id, "task_family": task_family, "resumed": resume is not None,
+            "spend_caps": None if caps is None else {"daily_cap_usd": caps.daily_cap_usd,
+                                                     "monthly_cap_usd": caps.monthly_cap_usd},
+            "route_models": {name: r.model for name, r in sorted(self._router.routes.items())},
+        })
+        status, error, crashed = "completed", None, True
         try:
             yield
+            if s.cursor < len(s.replay):  # the workflow finished without reaching a recorded step
+                step = s.replay[s.cursor]
+                raise ResumeDiverged(step["index"], {"route": step["route"], "prompt_sha256": step["prompt_sha256"]},
+                                     {"run_ended": True})
+            crashed = False
+        except KillSwitchEngaged:
+            status, error, crashed = "killed", "kill switch engaged", False
+            raise
+        except Exception as e:
+            status, error, crashed = "failed", f"{type(e).__name__}: {e}", False
+            raise
         finally:
-            self._scope.counts = None
-            self._scope.family = None
+            # A BaseException (the process is dying) writes nothing: the record stays
+            # in_progress and is read as crashed by the next process.
+            if not crashed:
+                if status == "completed" and s.halt is not None:
+                    status, error = s.halt  # a halt the caller caught still ends the run that way
+                if record is not None:
+                    record["status"], record["error"] = status, error
+                    self.runs.save(record)
+                self._event("run_closed", {"run_id": s.run_id, "status": status, "error": error})
+            s.counts = s.family = s.record = s.replay = s.halt = s.run_id = None
+
+    def note_checks(self, report: VerificationReport) -> None:
+        """Add a verifier report to the current run's record (Slice 31)."""
+        record = getattr(self._scope, "record", None)
+        if record is not None:
+            record["checks"].append({"index": len(record["checks"]), "passed": report.passed,
+                                     "checks": [{"name": r.name, "passed": r.passed} for r in report.results]})
+            self.runs.save(record)
+
+    def _halt(self, status: str, error: str) -> None:
+        if getattr(self._scope, "halt", None) is None:
+            self._scope.halt = (status, error)
 
     def _shadow(self, request: RouteRequest, rules: RouteDecision, prompt: str) -> None:
         """Trace what the shadow policy would have chosen. It must never affect the run."""
@@ -227,6 +312,7 @@ class Executor:
                 "sensitivity_class": sensitivity_class,
                 "difficulty": difficulty,
                 "prompt_chars": len(prompt),
+                "prompt_sha256": prompt_digest(prompt),  # Slice 31: replay re-derives loop detection
                 "max_cost_usd": limit,
                 "max_retries": max_retries,
             },
@@ -242,13 +328,15 @@ class Executor:
                     result, cost = self._call(prompt, decision, spent, limit, escalated=decision.route != first.route)
                     spent += cost
                     break
-                except (NoClientConfigured, BudgetExceeded, ManifestTamperError, LoopDetected, KillSwitchEngaged):
+                except (NoClientConfigured, BudgetExceeded, ManifestTamperError, LoopDetected, KillSwitchEngaged,
+                        ResumeDiverged):
                     raise  # halts, not route failures: never retried
                 except Exception as error:
                     failures += 1
                     self._event(
                         "route_failure",
-                        {"route": decision.route, "model": decision.model, "error_class": type(error).__name__},
+                        {"route": decision.route, "model": decision.model,
+                         "error_class": getattr(error, "error_class", type(error).__name__)},
                     )
                     if failures > max_retries:
                         raise
@@ -271,46 +359,22 @@ class Executor:
                         {"from_route": decision.route, "to_route": retry.route, "attempt": failures, "error": str(error)},
                     )
                     decision = retry
-        except SpendCapReached as e:
-            self._event(
-                "spend_cap_reached",
-                {
-                    "cap": e.cap,
-                    "period": e.period,
-                    "spent_est_cost_usd": e.accumulated_cost_usd,
-                    "cap_usd": e.limit_usd,
-                    "next_call_est_cost_usd": e.next_call_est_usd,
-                },
-            )
-            raise
-        except LoopDetected as e:
-            self._event(
-                "loop_detected",
-                {"route": e.route, "prompt_sha256": e.prompt_sha256, "successful_calls": e.successful_calls},
-            )
-            raise
         except KillSwitchEngaged:
+            self._halt("killed", "kill switch engaged")
             self._event("run_refused", {"reason": "kill switch engaged"})
             raise
-        except BudgetExceeded as e:
-            self._event(
-                "budget_exceeded",
-                {
-                    "accumulated_est_cost_usd": e.accumulated_cost_usd,
-                    "limit_usd": e.limit_usd,
-                    "next_call_est_cost_usd": e.next_call_est_usd,
-                },
-            )
-            raise
         except Exception as e:
-            self._event("run_failed", {"error": f"{type(e).__name__}: {e}", "total_est_cost_usd": spent})
+            self._halt("failed", f"{type(e).__name__}: {e}")
+            self._halt_event(e, spent)
             raise
 
         # Verify real state, never the response: checks get no actor output.
         verified = False
         if checks is not None:
             report = Verifier(self._trace).verify(checks)
+            self.note_checks(report)
             if not report.passed:
+                self._halt("failed", "verification failed")
                 self._event("verification_failed", {**report.to_dict(), "total_est_cost_usd": spent})
                 raise VerificationFailed(report, spent)
             verified = True
@@ -329,6 +393,27 @@ class Executor:
             },
         )
         return result
+
+    def _halt_event(self, e: Exception, spent: float) -> None:
+        if isinstance(e, SpendCapReached):
+            self._event("spend_cap_reached", {
+                "cap": e.cap,
+                "period": e.period,
+                "spent_est_cost_usd": e.accumulated_cost_usd,
+                "cap_usd": e.limit_usd,
+                "next_call_est_cost_usd": e.next_call_est_usd,
+            })
+        elif isinstance(e, LoopDetected):
+            self._event("loop_detected",
+                        {"route": e.route, "prompt_sha256": e.prompt_sha256, "successful_calls": e.successful_calls})
+        elif isinstance(e, BudgetExceeded):
+            self._event("budget_exceeded", {
+                "accumulated_est_cost_usd": e.accumulated_cost_usd,
+                "limit_usd": e.limit_usd,
+                "next_call_est_cost_usd": e.next_call_est_usd,
+            })
+        else:
+            self._event("run_failed", {"error": f"{type(e).__name__}: {e}", "total_est_cost_usd": spent})
 
     def _call(
         self,
@@ -360,18 +445,35 @@ class Executor:
             if spent + next_cost > limit:
                 raise BudgetExceeded(spent, limit, next_cost)
 
+        # Slice 31: a resumed run reuses its recorded steps, in order; no model call is made.
+        recorded = self._next_recorded_step(decision, key[1])
+        if recorded is not None:
+            self._event("step_replayed", {
+                "run_id": self._scope.run_id, "index": recorded["index"], "route": decision.route,
+                "model": decision.model, "prompt_sha256": key[1], "outcome": recorded["outcome"],
+                "prompt_chars": len(prompt), "response_chars": len(recorded.get("response") or ""),
+                "est_cost_usd": recorded["est_cost_usd"] if recorded["outcome"] == "ok" else 0.0,
+            })
+            if recorded["outcome"] == "error":
+                raise ReplayedFailure(recorded.get("error_class") or "Exception")
+            counts[key] += 1
+            return (RunResult(recorded["response"], decision.route, decision.model, 0.0, escalated),
+                    recorded["est_cost_usd"])
+
         route = self._router.route(decision.route)
         # Spend caps cover API routes only: local routes cost nothing.
         capped = self._budgets is not None and route.tier in API_TIERS
         if capped:
             self._check_spend_caps(estimate_cost(tokens_in, rate))
         egress = self._egress if route.tier in API_TIERS else None
+        step = self._begin_step(decision, key[1], estimate_cost(tokens_in, rate))
         start = time.perf_counter()
         try:
             response = client.complete(prompt)
             if not isinstance(response, str):
                 raise TypeError(f"client for route {decision.route!r} returned {type(response).__name__}, not str")
         except Exception as error:
+            self._end_step(step, "error", error_class=type(error).__name__)
             if egress is not None:
                 egress.record(route=decision.route, model=decision.model, host=destination_host(client, route.provider),
                               prompt=prompt, response=None, error_class=type(error).__name__)
@@ -384,6 +486,7 @@ class Executor:
         counts[key] += 1
         tokens_out = estimate_tokens(len(response))
         cost = estimate_cost(tokens_in + tokens_out, rate)
+        self._end_step(step, "ok", cost=cost, response=response)
         self._event(
             "model_call",
             {
@@ -391,6 +494,7 @@ class Executor:
                 "model": decision.model,
                 "latency_ms": latency_ms,
                 "prompt_chars": len(prompt),
+                "prompt_sha256": key[1],  # Slice 31: digest, never the prompt
                 "response_chars": len(response),
                 "est_tokens_in": tokens_in,
                 "est_tokens_out": tokens_out,
@@ -401,6 +505,45 @@ class Executor:
         if capped:
             self._spend_alerts()
         return RunResult(response, decision.route, decision.model, latency_ms, escalated), cost
+
+    # ---- Slice 31: steps in the run record ----
+
+    def _next_recorded_step(self, decision: RouteDecision, digest: str) -> dict | None:
+        s = self._scope
+        if s.cursor >= len(s.replay):
+            return None
+        step = s.replay[s.cursor]
+        expected = {"route": step["route"], "prompt_sha256": step["prompt_sha256"]}
+        got = {"route": decision.route, "prompt_sha256": digest}
+        if got != expected:  # the workflow did not re-derive the same call: never guess
+            raise ResumeDiverged(step["index"], expected, got)
+        s.cursor += 1
+        return step
+
+    def _begin_step(self, decision: RouteDecision, digest: str, est_cost: float) -> dict | None:
+        record = self._scope.record
+        if record is None:
+            return None
+        step = {"index": len(record["steps"]), "route": decision.route, "model": decision.model,
+                "prompt_sha256": digest, "est_cost_usd": est_cost, "outcome": "in_flight",
+                "at": datetime.now(timezone.utc).isoformat(), "resumed": bool(record["resumes"])}
+        record["steps"].append(step)
+        self.runs.save(record)  # written before the call: a crash leaves this as the last step
+        return step
+
+    def _end_step(self, step: dict | None, outcome: str, *, cost: float | None = None,
+                  response: str | None = None, error_class: str | None = None) -> None:
+        if step is None:
+            return
+        record = self._scope.record
+        step["outcome"] = outcome
+        if cost is not None:
+            step["est_cost_usd"] = cost
+        if error_class is not None:
+            step["error_class"] = error_class
+        if response is not None and record["workflow"] is not None:
+            step["response"] = response  # stored only for resumable runs, so a resume can reuse it
+        self.runs.save(record)
 
     # ---- Slice 29: spend caps and alerts, from the cost ledger (the trace) ----
 

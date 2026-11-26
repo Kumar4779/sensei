@@ -5,6 +5,9 @@ new runs, cost totals from the trace, and memory review/deletion.
 
 Slice 29: the kill switch is a file (<SENSEI_HOME>/killed.json, see
 killswitch.py), re-read on every request, so a restart cannot clear it.
+
+Slice 31: every run writes a run record (<SENSEI_HOME>/runs/); the brief is a
+resumable workflow, and POST /runs/<id>/resume continues a crashed or killed run.
 All components are injected; main() wires a real local setup.
 
 Slice 22 adds a phone-first web UI (a client of these endpoints, nothing
@@ -32,7 +35,6 @@ from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from sensei_core.brief import build_brief, failed_labels, load_morning_fixture
 from sensei_core.egress import EgressLog
 from sensei_core.manifests import ManifestTamperError
 
@@ -40,6 +42,9 @@ from sensei_core.executor import BudgetExceeded, Executor, LoopDetected, SpendCa
 from sensei_core.killswitch import KILL_FILE, KillSwitch, KillSwitchEngaged
 from sensei_core.ledger import CostLedger
 from sensei_core.memory import MemoryStore
+from sensei_core.resume import resume_run
+from sensei_core.runs import ResumeDiverged, RunNotResumable, RunStore
+from sensei_core.workflows import BRIEF_FAMILY, run_brief_workflow
 from sensei_core.trace import TraceWriter
 
 TOKEN_ENV = "SENSEI_GATEWAY_TOKEN"
@@ -75,6 +80,24 @@ def _error(status: int, message: str, **extra) -> JSONResponse:
 
 class _Unauthorized(Exception):
     pass
+
+
+def _halt_response(e: Exception) -> JSONResponse | None:
+    """The HTTP answer for a run that halted (Slices 29 and 31); None if e is not a halt."""
+    if isinstance(e, SpendCapReached):
+        return _error(402, "spend cap reached", cap=e.cap, period=e.period,
+                      spent_est_cost_usd=e.accumulated_cost_usd, cap_usd=e.limit_usd,
+                      next_call_est_cost_usd=e.next_call_est_usd)
+    if isinstance(e, LoopDetected):
+        return _error(508, "loop detected", route=e.route, successful_calls=e.successful_calls)
+    if isinstance(e, KillSwitchEngaged):
+        return _error(503, "kill switch engaged")
+    if isinstance(e, ResumeDiverged):
+        return _error(409, "resume diverged", step=e.index, recorded=e.expected, rederived=e.got)
+    if isinstance(e, BudgetExceeded):
+        return _error(402, "budget exceeded", accumulated_est_cost_usd=e.accumulated_cost_usd,
+                      limit_usd=e.limit_usd, next_call_est_cost_usd=e.next_call_est_usd)
+    return None
 
 
 def create_app(
@@ -143,22 +166,8 @@ def create_app(
             result = executor.run_once(
                 body.prompt, body.sensitivity_class, body.difficulty, max_cost_usd=body.max_cost_usd
             )
-        except SpendCapReached as e:
-            return _error(402, "spend cap reached", cap=e.cap, period=e.period,
-                          spent_est_cost_usd=e.accumulated_cost_usd, cap_usd=e.limit_usd,
-                          next_call_est_cost_usd=e.next_call_est_usd)
-        except LoopDetected as e:
-            return _error(508, "loop detected", route=e.route, successful_calls=e.successful_calls)
-        except KillSwitchEngaged:
-            return _error(503, "kill switch engaged")
-        except BudgetExceeded as e:
-            return _error(
-                402,
-                "budget exceeded",
-                accumulated_est_cost_usd=e.accumulated_cost_usd,
-                limit_usd=e.limit_usd,
-                next_call_est_cost_usd=e.next_call_est_usd,
-            )
+        except (BudgetExceeded, LoopDetected, KillSwitchEngaged) as e:
+            return _halt_response(e)
         except VerificationFailed as e:
             return _error(
                 422, "verification failed", report=e.report.to_dict(), total_est_cost_usd=e.total_est_cost_usd
@@ -243,33 +252,39 @@ def create_app(
         if brief_fixture is None or briefs is None:
             return _error(409, "no brief data source configured (SENSEI_BRIEF_FIXTURE)")
         executor.manifests.verify()  # Slice 24
-        day = date.today().isoformat()  # the user's local day
-        md, status = brief_paths(day)
         yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
         cost = CostLedger(ledger_path).by_day().get(yesterday, 0.0) if ledger_path.exists() else 0.0
+        # Slice 31: everything the prompt is built from, resolved now, so a resume re-derives it.
+        params = {"fixture": str(brief_fixture), "brief_dir": str(briefs), "day": date.today().isoformat(),
+                  "pending_count": len(memory_store.list_pending()), "yesterday_cost_usd": cost}
         try:
-            data = load_morning_fixture(brief_fixture, pending_count=len(memory_store.list_pending()),
-                                        yesterday_cost_usd=cost)
-            result = build_brief(executor, data, md, "LOCAL_ONLY", repair=True, assemble_inbox=True, trace=trace)
-        except SpendCapReached as e:
-            return _error(402, "spend cap reached", cap=e.cap, period=e.period)
-        except LoopDetected as e:
-            return _error(508, "loop detected", route=e.route, successful_calls=e.successful_calls)
-        except KillSwitchEngaged:
-            return _error(503, "kill switch engaged")
-        except BudgetExceeded as e:
-            return _error(402, "budget exceeded", accumulated_est_cost_usd=e.accumulated_cost_usd)
+            with executor.run_scope(BRIEF_FAMILY, workflow={"kind": "brief", "params": params}):
+                return run_brief_workflow(executor, params, trace)
         except ManifestTamperError:
             raise
         except Exception as e:
-            return _error(502, f"brief failed: {type(e).__name__}: {e}")
-        record = {"day": day, "generated_at": datetime.now(timezone.utc).isoformat(), "verified": result.verified,
-                  "attempts": result.attempts, "failed_checks": failed_labels(result.report),
-                  "route": result.run.route, "model": result.run.model,
-                  "est_cost_usd": result.total_est_cost_usd, "latency_ms": result.total_latency_ms}
-        status.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-        event("brief_generated", {k: record[k] for k in ("day", "verified", "attempts", "failed_checks")})
-        return record
+            return _halt_response(e) or _error(502, f"brief failed: {type(e).__name__}: {e}")
+
+    @app.post("/runs/{run_id}/resume", dependencies=auth)
+    def resume(run_id: str):
+        # Slice 31: a resumed run meets the same gates as a new one.
+        if switch.engaged():
+            event("gateway_run_refused", {"reason": "kill switch engaged", "operation": "resume"})
+            return _error(503, "kill switch engaged")
+        executor.manifests.verify()
+        try:
+            record, result = resume_run(executor, run_id, trace)
+        except KeyError:
+            return _error(404, "run record not found")
+        except RunNotResumable as e:
+            return _error(409, str(e))
+        except ManifestTamperError:
+            raise
+        except Exception as e:
+            return _halt_response(e) or _error(502, f"resumed run failed: {type(e).__name__}: {e}")
+        return {"run_id": record["run_id"], "status": record["status"],
+                "reused_steps": record["resumes"][-1]["reused_steps"], "steps": len(record["steps"]),
+                "result": result}
 
     @app.get("/brief/today", dependencies=auth)
     def brief_today():
@@ -310,15 +325,12 @@ def create_app(
     return app
 
 
-def main() -> None:
-    """Serve a real local setup on 127.0.0.1: Ollama for local_private, fakes for API routes."""
-    import uvicorn
-
+def local_setup(home: Path) -> tuple[Executor, TraceWriter, KillSwitch]:
+    """The real local executor over a Sensei home: Ollama for local_private, fakes for API routes."""
     from sensei_core.clients import OllamaClient
     from sensei_core.config import load_budgets, load_models
     from sensei_core.router import FakeClient, Router
 
-    home = Path(os.environ.get("SENSEI_HOME", Path.home() / ".sensei"))
     routes = load_models()
     local_model = os.environ.get("SENSEI_LOCAL_MODEL", routes["local_private"].model)
     routes["local_private"] = dataclasses.replace(routes["local_private"], model=local_model)
@@ -337,11 +349,21 @@ def main() -> None:
         egress=egress,
         budgets=load_budgets(),
         kill_switch=switch,
+        runs=RunStore(home / "runs"),
     )
+    return executor, trace, switch
+
+
+def main() -> None:
+    """Serve a real local setup on 127.0.0.1: Ollama for local_private, fakes for API routes."""
+    import uvicorn
+
+    home = Path(os.environ.get("SENSEI_HOME", Path.home() / ".sensei"))
+    executor, trace, switch = local_setup(home)
     fixture = os.environ.get("SENSEI_BRIEF_FIXTURE")
     try:
         app = create_app(executor, trace.path, MemoryStore(home / "memory"), trace,
-                         brief_fixture=fixture, brief_dir=home / "briefs", egress_path=egress.path,
+                         brief_fixture=fixture, brief_dir=home / "briefs", egress_path=home / "egress.jsonl",
                          kill_switch=switch)
     except GatewayConfigError as e:
         raise SystemExit(f"Sensei gateway not started: {e}") from None

@@ -46,8 +46,8 @@ def test_api_ok_simple_completes_via_cheap_api(trace):
     assert result.route == "cheap_api"
     assert result.response == "cheap answer"
     assert result.escalated is False
-    assert event_types(trace) == ["manifests_loaded", "run_started", "route_decision", "shadow_decision",
-                                  "model_call", "run_completed"]
+    assert event_types(trace) == ["manifests_loaded", "run_opened", "run_started", "route_decision",
+                                  "shadow_decision", "model_call", "run_completed", "run_closed"]
 
 
 def test_local_only_never_touches_api_clients(trace):
@@ -69,6 +69,7 @@ def test_cheap_failure_escalates_to_frontier(trace):
     assert clients["cheap_api"].prompts == ["draft a plan"]
     assert event_types(trace) == [
         "manifests_loaded",  # Slice 24
+        "run_opened",  # Slice 31
         "run_started",
         "route_decision",
         "shadow_decision",  # Slice 30: one per run, after the first routing decision
@@ -77,6 +78,7 @@ def test_cheap_failure_escalates_to_frontier(trace):
         "run_escalated",
         "model_call",
         "run_completed",
+        "run_closed",
     ]
 
 
@@ -87,7 +89,7 @@ def test_local_failure_fails_without_touching_api(trace):
     assert clients["cheap_api"].prompts == []
     assert clients["frontier_api"].prompts == []
     types = event_types(trace)
-    assert types[-1] == "run_failed"
+    assert types[-2:] == ["run_failed", "run_closed"]  # Slice 31: every run is closed
     assert "run_escalated" not in types and "model_call" not in types
 
 
@@ -95,7 +97,7 @@ def test_missing_client_raises_naming_the_route(trace):
     ex = Executor(Router(load_models(), trace=trace), {"cheap_api": FakeClient()}, trace=trace)
     with pytest.raises(NoClientConfigured, match="frontier_api"):
         ex.run_once("hard question", "API_OK", "hard")
-    assert event_types(trace)[-1] == "run_failed"
+    assert event_types(trace)[-2:] == ["run_failed", "run_closed"]
 
 
 def test_prompt_text_is_not_written_to_trace(trace):
