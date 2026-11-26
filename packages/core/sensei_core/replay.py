@@ -368,7 +368,9 @@ class Replayer:
             # route_failure: the call failed (an outside fact); the retry decision is re-derived
             self.expect_fields(outcome_line, t, op, {"route": route, "model": model_of(route)})
             failures += 1
-            if failures > retries:
+            # Slice 36: a fail-closed failure (no key, quota exhausted) is recorded as such; the
+            # Executor's rule is that such a run stops: no retry, no escalation.
+            if failures > retries or op.get("fail_closed") is True:
                 self.expect("run_failed", {"total_est_cost_usd": spent}, scope)
                 scope.halt = "failed"
                 return

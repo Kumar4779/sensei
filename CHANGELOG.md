@@ -684,3 +684,42 @@ detection, run records, the egress log and the containment probe.
   - **The `/run` response shows `verified: false`** because `/run` passes no
     checks; it does not mean the completion was rejected.
   - **Issue #1 is closed:** every acceptance criterion is met.
+
+## A quota-exhausted 429 fails closed (Slice 36, #2)
+
+In Slice 35's first live attempt, Moonshot returned HTTP 429
+`exceeded_current_quota_error` and the Executor retried once on the same route.
+That retry cannot succeed while the account has no balance. A rate limit is a
+burst, and worth retrying; an exhausted quota is a state, so a retry only wastes
+a call.
+
+- **`KimiClient` tells the two 429s apart** by Moonshot's `error.type`:
+  - `exceeded_current_quota_error` raises `KimiQuotaExhausted`, a fail-closed
+    error (the Slice 35 marker) with `error_class: quota_exhausted`. The
+    Executor traces `route_failure` and stops the run, with no retry and no
+    escalation.
+  - Every other 429, typed or not, is still `rate_limited` and keeps the
+    retry-then-escalate rules, unchanged.
+- **The stop is recorded as a fact:**
+  - A fail-closed `route_failure` now carries `fail_closed: true` beside its
+    `error_class`. Replay applies the Executor's rule to that fact: a
+    fail-closed failure means `run_failed` next.
+  - This also closes a Slice 35 gap. A key-absent run (the other fail-closed
+    case) stopped without a retry, but nothing in its trace said why, so
+    replay would have expected a retry and reported a divergence.
+  - Traces without the field (every one before this slice) replay as before.
+    The real `~/.sensei` trace, including Slice 35's live 429 run, still
+    replays to MATCH.
+- **Tests:**
+  - The client separates a quota 429 from rate-limit, untyped and bodiless
+    429s.
+  - A stubbed quota 429 makes exactly one client call and fails the run, for
+    simple and standard tasks alike, even when a second call would succeed;
+    the run record is `failed`.
+  - A stubbed rate-limit 429 still retries (simple) and escalates (standard)
+    exactly as before.
+  - A trace with a quota stop, a rate-limit retry, a rate-limit escalation
+    and a key-absent stop replays to MATCH. With the `fail_closed` fact
+    removed, replay diverges at the decision it would then re-derive.
+  - Planted regressions are caught: dropping the quota branch fails 4 tests,
+    and dropping the replay rule fails the replay test.

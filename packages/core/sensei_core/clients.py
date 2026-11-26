@@ -103,6 +103,24 @@ class KimiKeyMissing(KimiUnavailable):
                          f"add-generic-password -a sensei -s {KIMI_KEY_SERVICE} -U -w", "key_absent")
 
 
+class KimiQuotaExhausted(KimiUnavailable):
+    """HTTP 429 exceeded_current_quota_error: the account has no balance. A state, not a burst.
+
+    Retrying cannot succeed until the owner tops up, so the run stops (Slice 36). Any other 429
+    is a rate limit, transient, and keeps the retry-then-escalate rules.
+    """
+
+    fail_closed = True
+
+    def __init__(self, model: str) -> None:
+        super().__init__(f"Kimi returned HTTP 429 for model {model!r} (exceeded_current_quota_error): the "
+                         "Moonshot account's quota or balance is exhausted; the cheap_api route is unavailable "
+                         "until it is topped up", "quota_exhausted")
+
+
+QUOTA_EXHAUSTED = "exceeded_current_quota_error"
+
+
 def _http_error_class(status: int) -> str:
     if status in (401, 403):
         return "auth_failed"
@@ -171,7 +189,10 @@ class KimiClient:
             # Only the status and Moonshot's error type reach the message: never the body
             # verbatim (it could echo the request), never the key.
             kind = _error_type(e)
-            raise KimiUnavailable(f"Kimi returned HTTP {e.code} for model {self.model!r}{kind}",
+            if e.code == 429 and kind == QUOTA_EXHAUSTED:
+                raise KimiQuotaExhausted(self.model) from None
+            shown = f" ({kind})" if kind else ""
+            raise KimiUnavailable(f"Kimi returned HTTP {e.code} for model {self.model!r}{shown}",
                                   _http_error_class(e.code)) from None
         except (TimeoutError, socket.timeout) as e:
             raise KimiUnavailable(f"Kimi call timed out after {self.timeout:g} s", "timeout") from e
@@ -191,12 +212,13 @@ class KimiClient:
 
 
 def _error_type(e: urllib.error.HTTPError) -> str:
+    """Moonshot's error.type, if it is a plain identifier; never the message (it can echo input)."""
     try:
         err = json.loads(e.read().decode("utf-8")).get("error", {})
         kind = err.get("type") if isinstance(err, dict) else None
     except (ValueError, AttributeError, OSError):
         kind = None
-    return f" ({kind})" if isinstance(kind, str) and kind.replace("_", "").isalnum() else ""
+    return kind if isinstance(kind, str) and kind.replace("_", "").isalnum() else ""
 
 
 def list_ollama_models(base_url: str = OLLAMA_BASE_URL, timeout: float = 5.0) -> list[str]:

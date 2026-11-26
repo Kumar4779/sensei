@@ -13,7 +13,8 @@ import urllib.error
 import pytest
 
 from sensei_core import credentials
-from sensei_core.clients import KIMI_BASE_URL, KimiClient, KimiKeyMissing, KimiUnavailable
+from sensei_core import replay as replay_mod
+from sensei_core.clients import KIMI_BASE_URL, KimiClient, KimiKeyMissing, KimiQuotaExhausted, KimiUnavailable
 from sensei_core.config import load_models
 from sensei_core.containment import check_egress
 from sensei_core.egress import EgressLog
@@ -200,7 +201,8 @@ def test_key_absent_traces_route_failure_and_never_substitutes_a_route(tmp_path)
     with pytest.raises(KimiKeyMissing):
         ex.run_once("plan my week", "API_OK", "standard")  # standard would escalate on an ordinary failure
     [failure] = [e for e in read_events(trace.path) if e["event_type"] == "route_failure"]
-    assert failure["payload"] == {"route": "cheap_api", "model": "kimi-k3", "error_class": "key_absent"}
+    assert failure["payload"] == {"route": "cheap_api", "model": "kimi-k3", "error_class": "key_absent",
+                                  "fail_closed": True}
     assert "run_escalated" not in types(trace) and "run_retried" not in types(trace)
     assert clients["frontier_api"].prompts == [] and clients["local_private"].prompts == []
     assert stub.calls == [] and "run_failed" in types(trace)
@@ -254,6 +256,84 @@ def test_the_key_never_reaches_a_trace_an_egress_record_or_a_run_record(tmp_path
     assert all(key not in text for text in everything)
     assert all(e not in text for text in everything for e in ("[REDACTED]",)), "nothing needed scrubbing"
     assert {"route_failure", "run_retried", "run_escalated", "model_call"} <= set(types(trace))
+
+
+# ---- Slice 36: a quota-exhausted 429 fails closed; a rate-limit 429 does not ----------------
+
+QUOTA = {"error": {"message": "Your account is suspended due to insufficient balance",
+                   "type": "exceeded_current_quota_error"}}
+RATE_LIMIT = {"error": {"message": "rate limit reached for requests", "type": "rate_limit_reached_error"}}
+
+
+def test_the_client_tells_the_two_429s_apart():
+    c, _ = client(http_error(429, QUOTA))
+    with pytest.raises(KimiQuotaExhausted) as quota:
+        c.complete("q")
+    assert quota.value.fail_closed and quota.value.error_class == "quota_exhausted"
+    assert "exceeded_current_quota_error" in str(quota.value) and "insufficient balance" not in str(quota.value)
+    for body in (RATE_LIMIT, {"error": {"message": "x"}}, {}):  # any other 429, typed or not, is a rate limit
+        c, _ = client(http_error(429, body))
+        with pytest.raises(KimiUnavailable) as other:
+            c.complete("q")
+        assert type(other.value) is KimiUnavailable and other.value.error_class == "rate_limited"
+        assert not other.value.fail_closed
+
+
+@pytest.mark.parametrize("difficulty", ["simple", "standard"])
+def test_a_quota_429_makes_one_call_and_fails_the_run(tmp_path, difficulty):
+    kimi, stub = client(http_error(429, QUOTA), reply())  # a second call would succeed: it must not happen
+    ex, trace, clients = executor(tmp_path, kimi)
+    with pytest.raises(KimiQuotaExhausted):
+        ex.run_once("plan my week", "API_OK", difficulty)
+    assert len(stub.calls) == 1
+    assert clients["frontier_api"].prompts == [] and clients["local_private"].prompts == []
+    [failure] = [e["payload"] for e in read_events(trace.path) if e["event_type"] == "route_failure"]
+    assert failure == {"route": "cheap_api", "model": "kimi-k3", "error_class": "quota_exhausted", "fail_closed": True}
+    t = types(trace)
+    assert "run_retried" not in t and "run_escalated" not in t and "model_call" not in t
+    assert t[t.index("route_failure") + 1] == "run_failed"
+    [record] = (tmp_path / "runs").glob("*.json")
+    assert json.loads(record.read_text())["status"] == "failed"
+
+
+def test_a_rate_limit_429_still_retries_then_escalates(tmp_path):
+    # simple: retried once on the same route; standard: escalated to frontier_api (Slice 23, unchanged)
+    kimi, stub = client(http_error(429, RATE_LIMIT), reply("after the burst"))
+    ex, trace, clients = executor(tmp_path, kimi)
+    assert ex.run_once("hi", "API_OK", "simple").response == "after the burst" and len(stub.calls) == 2
+    kimi2, stub2 = client(http_error(429, RATE_LIMIT), reply())
+    ex2, trace2, clients2 = executor(tmp_path / "standard", kimi2)
+    result = ex2.run_once("plan my week", "API_OK", "standard")
+    assert result.route == "frontier_api" and result.escalated and len(stub2.calls) == 1
+    assert clients2["frontier_api"].prompts == ["plan my week"]
+    for tr, follow in ((trace, "run_retried"), (trace2, "run_escalated")):
+        failures = [e["payload"] for e in read_events(tr.path) if e["event_type"] == "route_failure"]
+        assert failures == [{"route": "cheap_api", "model": "kimi-k3", "error_class": "rate_limited"}]
+        assert follow in types(tr)
+
+
+def test_the_distinction_survives_replay(tmp_path):
+    kimi, _ = client(http_error(429, QUOTA), http_error(429, RATE_LIMIT), reply(), http_error(429, RATE_LIMIT),
+                     reply(), reply(), key=KEY)
+    ex, trace, _ = executor(tmp_path, kimi)
+    with pytest.raises(KimiQuotaExhausted):
+        ex.run_once("plan my week", "API_OK", "standard")  # quota: stops
+    ex.run_once("hi", "API_OK", "simple")  # rate limit: retried, completes
+    ex.run_once("plan my month", "API_OK", "standard")  # rate limit: escalated, completes
+    with pytest.raises(KimiKeyMissing):  # Slice 35's other fail-closed case
+        executor(tmp_path, client(reply(), key=None)[0])[0].run_once("plan", "API_OK", "standard")
+    result = replay_mod.replay(trace.path)
+    assert result.matched, replay_mod.format_result(trace.path, result)
+    assert result.runs == 4
+
+    # Drop the recorded fail_closed fact: replay then derives an escalation the trace does not have.
+    tampered = tmp_path / "tampered.jsonl"
+    tampered.write_text(trace.path.read_text().replace(', "fail_closed": true', "", 1))
+    assert tampered.read_text() != trace.path.read_text()
+    bad = replay_mod.replay(tampered)
+    report = replay_mod.format_result(tampered, bad)
+    # Replay re-decides the escalation (a route_decision), but the trace recorded the stop.
+    assert not bad.matched and "expected route_decision, recorded run_failed" in report
 
 
 def test_the_probe_reports_cheap_api_as_a_real_client(tmp_path, monkeypatch):

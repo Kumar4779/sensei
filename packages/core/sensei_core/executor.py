@@ -343,16 +343,18 @@ class Executor:
                     raise  # halts, not route failures: never retried
                 except Exception as error:
                     failures += 1
-                    self._event(
-                        "route_failure",
-                        {"route": decision.route, "model": decision.model,
-                         "error_class": getattr(error, "error_class", type(error).__name__)},
-                    )
+                    fail_closed = getattr(error, "fail_closed", False) is True
+                    failure = {"route": decision.route, "model": decision.model,
+                               "error_class": getattr(error, "error_class", type(error).__name__)}
+                    if fail_closed:
+                        failure["fail_closed"] = True  # Slice 36: recorded, so replay re-derives the stop
+                    self._event("route_failure", failure)
                     if failures > max_retries:
                         raise
-                    if getattr(error, "fail_closed", False):
-                        # Slice 35: the route is unavailable (no credential). The run stops here:
-                        # retrying cannot help, and re-routing would substitute another backend.
+                    if fail_closed:
+                        # Slices 35-36: the route is unavailable (no credential, or the account's quota
+                        # is exhausted). The run stops here: retrying cannot help, and re-routing would
+                        # substitute another backend.
                         raise
                     if sensitivity_class == "LOCAL_ONLY":
                         # LOCAL_ONLY retries reuse the same local route; never re-routed.
