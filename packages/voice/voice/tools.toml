@@ -1,0 +1,59 @@
+# Voice Lab tool manifest: core's PermissionGate format (sensei_core/tools.toml).
+# The gate decides every voice tool call from this file. irreversible-tier calls
+# come back HALT_FOR_APPROVAL, and for voice the approval is the
+# confirmation echo (voice/confirm.py).
+#
+# Slice 1 tools are fake and in-memory, so none of them has egress endpoints.
+# A real messaging or payments adapter adds its endpoint label here, and then
+# (per core's rule) it can no longer accept LOCAL_ONLY content.
+
+[tools.morning_brief]
+tier = "read"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.calendar_query]
+tier = "read"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.take_note]
+tier = "reversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.move_event]
+tier = "reversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+# Denying a request leaves it re-submittable, so it is reversible. Approving it lets the request take effect, so it is irreversible.
+[tools.deny_pending]
+tier = "reversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.approve_pending]
+tier = "irreversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.send_note]
+tier = "irreversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.pay]
+tier = "irreversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.delete_note]
+tier = "irreversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []
+
+[tools.submit_form]
+tier = "irreversible"
+sensitivity = ["API_OK", "LOCAL_ONLY"]
+endpoints = []

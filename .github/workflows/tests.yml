@@ -105,3 +105,37 @@ jobs:
           if grep -qE '[0-9]+ skipped' pytest.log; then
             echo "::error::GraphRAG tests were skipped in CI"; exit 1
           fi
+
+  voice:
+    name: voice (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            packages/core/pyproject.toml
+            packages/voice/pyproject.toml
+
+      # Voice Lab reuses core's PermissionGate and trace store, so core is installed alongside it.
+      - name: Install packages/core and packages/voice with its test dependencies
+        run: python -m pip install -e packages/core -e "packages/voice[dev]"
+
+      # Fake STT/TTS adapters only: no audio, no microphone, no API keys, no network.
+      # The action-safety tests must run, not skip, so a skip fails the job.
+      - name: Run the Voice Lab test suite
+        working-directory: packages/voice
+        shell: bash  # -eo pipefail, so a pytest failure isn't hidden by tee
+        run: |
+          python -m pytest -q -rs | tee pytest.log
+          if grep -qE '[0-9]+ skipped' pytest.log; then
+            echo "::error::Voice Lab tests were skipped in CI"; exit 1
+          fi
