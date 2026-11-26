@@ -8,6 +8,10 @@ same two protocols.
 
 Audio is never stored. Neither adapter returns audio, and the trace records
 transcripts only.
+
+Barge-in (Slice 2): a scripted utterance can say it was spoken while the
+previous reply was still playing, after `barge_in_after` of that reply's
+segments had been heard. TTS.stop records where playback was cut off.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ class ScriptedUtterance:
 
     transcript: str
     confidence: float = 0.95
+    barge_in_after: int | None = None  # segments of the previous reply heard before the user spoke
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,8 @@ class TextToSpeech(Protocol):
 
     def speak(self, text: str) -> SpokenReply: ...
 
+    def stop(self, segments_heard: int) -> None: ...
+
 
 class FakeSTT:
     name = "fake-stt"
@@ -62,7 +69,11 @@ class FakeTTS:
 
     def __init__(self) -> None:
         self.spoken: list[str] = []  # reply text only, for tests
+        self.stops: list[int] = []  # segments heard when playback was stopped
 
     def speak(self, text: str) -> SpokenReply:
         self.spoken.append(text)
         return SpokenReply(text)
+
+    def stop(self, segments_heard: int) -> None:
+        self.stops.append(segments_heard)
