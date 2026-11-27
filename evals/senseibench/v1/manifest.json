@@ -1,0 +1,189 @@
+{
+  "bench": "senseibench-v1",
+  "frozen": true,
+  "scoring": "deterministic only: task checkers, end-state checks and hard gates; no model judges anything",
+  "families": {
+    "core": {
+      "provenance": "SenseiBench core task packages (evals/tasks), the current version of each",
+      "tasks": [
+        {
+          "id": "morning-brief-001",
+          "version": 1,
+          "dir": "evals/tasks/morning-brief-001",
+          "sensitivity": "LOCAL_ONLY",
+          "workflow": null,
+          "sha256": "sha256:6bb0b3e28e7485d0de548b769faf8de00d56c59e6842471dbf5536a40659c89e"
+        },
+        {
+          "id": "morning-brief-002-adversarial",
+          "version": 3,
+          "dir": "evals/tasks/morning-brief-002-adversarial-v3",
+          "sensitivity": "LOCAL_ONLY",
+          "workflow": null,
+          "sha256": "sha256:f14d454c94f3b97de17bb5f1584576d553fc32be7a8a1c477beea16200949a77"
+        },
+        {
+          "id": "doc-summary-001",
+          "version": 1,
+          "dir": "evals/tasks/doc-summary-001",
+          "sensitivity": "API_OK",
+          "workflow": "doc_summary",
+          "sha256": "sha256:64e3aeb9b9a6bf6e0752352bca8698bdc7b3b7f109f0796219c2c7da65de8dc2"
+        }
+      ],
+      "excluded": [
+        {
+          "dir": "evals/tasks/morning-brief-002-adversarial",
+          "reason": "superseded by v3"
+        },
+        {
+          "dir": "evals/tasks/morning-brief-002-adversarial-v2",
+          "reason": "superseded by v3"
+        }
+      ]
+    },
+    "voice": {
+      "provenance": "Voice Lab voice-bench-v2, consumed through the voice harness as-is",
+      "source": "packages/voice/evals/voice-bench-v2/tasks.json",
+      "eval_version": "voice-bench-v2",
+      "sha256": "sha256:69458f387410d6c27d365f0ea65b5396a2e205666cc6f008f0ee8082e4b484bc",
+      "harness": "packages/voice/evals/harness.py",
+      "harness_sha256": "sha256:ca3943fdc149222646afc04907fdb2dd75c71bde746793835ce4a412761199ad",
+      "tasks": [
+        "v2-injection-prefix-001",
+        "v2-amount-misheard-001",
+        "v2-amount-control-001",
+        "v2-approve-it-001",
+        "v2-approve-pending-001",
+        "v2-homophone-misheard-001",
+        "v2-homophone-control-001",
+        "v2-calendar-control-001",
+        "v2-double-calls-001",
+        "v2-invoice-lowconf-001"
+      ]
+    },
+    "graphrag": {
+      "provenance": "GraphRAG v1 eval set (probes and leak-gate canaries) over the frozen v1 corpus",
+      "source": "packages/graphrag/evals/v1/ground_truth.json",
+      "corpus_version": "v1",
+      "seed": 20261128,
+      "sha256": "sha256:86316df2e92f37a8cd467208161cd83b2bfcf815086532caa738a6d494998b29",
+      "corpus": "packages/graphrag/corpus/v1",
+      "corpus_sha256": "sha256:5d0a75e54c51a9649198a218dbe867205089ab5d61b4fe623d090f0235de3fa5",
+      "tasks": {
+        "probes": 100,
+        "canaries": 10
+      }
+    },
+    "macpilot": {
+      "provenance": "MacPilot v1 benchmark design (20 tasks); design only, issue #4",
+      "source": "evals/macpilot/tasks.md",
+      "sha256": "sha256:c0b2623e20662efb3d402b71719750b2840ce4b2f28c9f28328f4b541767b81f",
+      "design": "evals/macpilot/benchmark-design.md",
+      "design_sha256": "sha256:5131e2cf001f172f095444a07df0c071592e88f3fef483a7aa0436e7f2da6971",
+      "scored": 0,
+      "tasks": [
+        {
+          "id": "MP-01",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-02",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-03",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-04",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-05",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-06",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-07",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-08",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-09",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-10",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-11",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-12",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-13",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-14",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-15",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-16",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet"
+        },
+        {
+          "id": "MP-17",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet; also needs test Gmail/Calendar accounts"
+        },
+        {
+          "id": "MP-18",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet; also needs test Gmail/Calendar accounts"
+        },
+        {
+          "id": "MP-19",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet; also needs test Gmail/Calendar accounts"
+        },
+        {
+          "id": "MP-20",
+          "status": "defined-only",
+          "reason": "no fixture, checker or agent exists yet; also needs test Gmail/Calendar accounts"
+        }
+      ]
+    }
+  }
+}

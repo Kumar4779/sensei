@@ -1,0 +1,120 @@
+{
+  "bench": "senseibench-v1",
+  "manifest_sha256": "sha256:240f162649fb1f596dd285a6d91aa59d411ac2380e61d660aa33ccffe0311a9d",
+  "families_included": {
+    "core": {
+      "source": "evals/tasks",
+      "tasks": [
+        "morning-brief-001@v1",
+        "morning-brief-002-adversarial@v3",
+        "doc-summary-001@v1"
+      ]
+    }
+  },
+  "run": {
+    "backend": "kimi",
+    "k": 3,
+    "claim": "dev (k=3)",
+    "started_at": "2026-11-27T05:59:43.239486+00:00",
+    "finished_at": "2026-11-27T06:08:34.562288+00:00",
+    "scoring": "deterministic only: task checkers, end-state checks and hard gates; no model judges anything"
+  },
+  "spend": {
+    "est_usd": 0.06309,
+    "cap_usd": 0.5,
+    "basis": "core's estimate: ceil(chars/4) tokens x est_cost_per_1k_tokens, visible text only"
+  },
+  "families": {
+    "core": {
+      "backend": "kimi",
+      "settings": {
+        "model": "kimi-k3",
+        "reasoning_effort": "low"
+      },
+      "tasks": [
+        {
+          "id": "morning-brief-001",
+          "version": 1,
+          "sensitivity": "LOCAL_ONLY",
+          "status": "not_applicable",
+          "reason": "LOCAL_ONLY content never leaves the machine (core's router rule); it needs a local backend, out of scope for v1"
+        },
+        {
+          "id": "morning-brief-002-adversarial",
+          "version": 3,
+          "sensitivity": "LOCAL_ONLY",
+          "status": "not_applicable",
+          "reason": "LOCAL_ONLY content never leaves the machine (core's router rule); it needs a local backend, out of scope for v1"
+        },
+        {
+          "id": "doc-summary-001",
+          "version": 1,
+          "sensitivity": "API_OK",
+          "status": "scored",
+          "trials": 3,
+          "passes": 3,
+          "pass^1": 1.0,
+          "pass^3": 1.0,
+          "pass@3": 1.0,
+          "est_cost_usd": 0.06309,
+          "latency_ms_mean": 12013.5,
+          "trials_detail": [
+            {
+              "trial": 1,
+              "passed": true,
+              "latency_ms": 15133.6,
+              "est_cost_usd": 0.021705,
+              "route": "cheap_api",
+              "model": "kimi-k3",
+              "attempts": 1,
+              "failed_checks": [],
+              "error": null,
+              "checker": {}
+            },
+            {
+              "trial": 2,
+              "passed": true,
+              "latency_ms": 10428.8,
+              "est_cost_usd": 0.02037,
+              "route": "cheap_api",
+              "model": "kimi-k3",
+              "attempts": 1,
+              "failed_checks": [],
+              "error": null,
+              "checker": {}
+            },
+            {
+              "trial": 3,
+              "passed": true,
+              "latency_ms": 10478.1,
+              "est_cost_usd": 0.021015,
+              "route": "cheap_api",
+              "model": "kimi-k3",
+              "attempts": 1,
+              "failed_checks": [],
+              "error": null,
+              "checker": {}
+            }
+          ],
+          "signals": {
+            "verifier": "the task's checker (a separate process, final state only)",
+            "routes": [
+              "cheap_api"
+            ]
+          }
+        }
+      ],
+      "summary": {
+        "tasks_total": 3,
+        "tasks_scored": 1,
+        "tasks_not_scored": {
+          "not_applicable": 2
+        },
+        "pass^1": 1.0,
+        "pass^3": 1.0,
+        "est_cost_usd": 0.06309,
+        "latency_ms_mean_per_task": 12013.5
+      }
+    }
+  }
+}
