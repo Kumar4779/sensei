@@ -49,8 +49,25 @@ button { font-family: inherit; }
 .avatar { position: relative; display: block; flex: none; height: 300px; aspect-ratio: 1168 / 2112; border-radius: 24px; overflow: hidden;
   background: conic-gradient(from 210deg, var(--violet), var(--cyan), var(--pink), var(--violet));
   box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 18px 50px rgba(79,123,255,.35), 0 0 70px rgba(124,92,255,.22); }
-.avatar img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity .4s ease; }
-.avatar.loaded img { opacity: 1; }
+/* The Live Avatar (#26): five faces stacked in one frame; the one for the demo's current state crossfades in. */
+.hero-figure { position: relative; }
+.avatar .face { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain;
+  opacity: 0; transition: opacity .25s ease; }
+.avatar.loaded .face.on { opacity: 1; }
+/* Motion: transform and opacity only, so the compositor runs it. */
+.avatar { animation: bob 5s ease-in-out infinite; will-change: transform; }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+.hero-figure[data-state="speaking"] .avatar { animation: talk-bounce .42s ease-in-out infinite alternate; }
+@keyframes talk-bounce { from { transform: translateY(0) scale(1); } to { transform: translateY(-3px) scale(1.012); } }
+/* Awaiting approval: Sensei is waiting on the human, so his glow pulses. */
+.avatar-glow { position: absolute; inset: 6% 4%; border-radius: 40px; pointer-events: none; opacity: 0;
+  box-shadow: 0 0 60px 12px rgba(34,211,238,.55); transition: opacity .25s ease; }
+.hero-figure[data-state="awaiting"] .avatar-glow { animation: glow-pulse 1.6s ease-in-out infinite; }
+@keyframes glow-pulse { 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
+@media (prefers-reduced-motion: reduce) {
+  .avatar, .hero-figure[data-state="speaking"] .avatar { animation: none; }
+  .hero-figure[data-state="awaiting"] .avatar-glow { animation: none; opacity: .6; }
+}
 @media (max-height: 760px) and (min-width: 901px) { .avatar { height: 270px; } }
 @media (max-width: 900px) {
   .top-grid { column-gap: 14px; align-items: center; }

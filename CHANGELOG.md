@@ -1157,3 +1157,20 @@ frozen task sets and the harness are unchanged.
     unchanged.
   - Speech came from the substitute microphone, as in earlier checks.
 - **Tests:** demo 88 (71 + 17), all offline with a fake model client.
+
+## Live Avatar: Sensei's face follows the demo's state (#26)
+
+- **States, driven by real events, never timers or decoration:**
+  - **Faces:** idle → idle; recording → listening; working (STT, a tool, or a model answer in flight) → thinking; awaiting approval (after the echo) → listening, with a glow pulse; speaking (reply audio playing) → speaking.
+  - **After a turn:** a verified completion (executed, hard gate PASS) shows happy for 2.5 s, then idle. A decline goes straight back to idle.
+  - **Exposed:** as `data-state` on the avatar figure.
+- **Motion:** a gentle idle bob, 250 ms crossfades, and a subtle bounce while speaking. It's compositor-only (`transform` and `opacity`), and `prefers-reduced-motion` turns it off. No video loops.
+- **Assets:** four new expression portraits (listening, thinking, speaking, happy), downloaded as-is and verified by byte count. They're served token-gated and byte-for-byte, like the idle avatar, with tests.
+- **Page weight:** the four new faces add 1,512,674 bytes (about 1.51 MB). They load after first paint; the idle face loads first.
+- **Favicon:** Sensei's head, drawn from the token-fetched idle face into a PNG data URL. A `data:,` placeholder stops the `/favicon.ico` request, and no public route is added.
+- **Layout:** unchanged. The avatar is still 166×300, 149×270 and 71×128 px, and the orb stays on the first screen at 1440×800, 1280×720 and 390×844.
+- **Verified with the headless harness** (the substitute microphone):
+  - Model question: recording → working → speaking → idle.
+  - Send flow: echo → awaiting → "yes" → working → speaking → verified (happy, 2.52 s) → idle.
+  - Pay decline: awaiting → "no" → speaking → idle.
+- **Tests:** demo 93 (88 + 4 face assets + 1 favicon).

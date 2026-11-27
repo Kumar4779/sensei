@@ -6,6 +6,9 @@
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#07070b">
 <title>Talk to Sensei</title>
+<!-- No public icon route: this empty icon stops the browser asking for /favicon.ico, and the app replaces it with
+     Sensei's head, drawn from the token-fetched avatar, once signed in. -->
+<link rel="icon" href="data:,">
 <!--
   Public shell (Demo Slice 1, restyled). It holds no data. It asks for the demo
   token once, keeps it in sessionStorage only (gone when the tab closes), and

@@ -101,19 +101,104 @@
   h1.appendChild(el("span", "grad", "Watch it ask first."));
   hero.appendChild(h1);
   hero.appendChild(el("p", null, "Speak a request. Anything irreversible is read back to you and waits for your yes, and every permission decision streams into the ledger as it happens."));
-  // Sensei, head to shoes. Fetched with the token like the rest of the app, then shown from a blob URL.
-  // The frame has the image's own aspect ratio and a fixed height, so nothing is cropped and nothing shifts on load.
+  // Sensei, head to shoes: the Live Avatar (#26). Each face is fetched with the token like the rest of the app and
+  // shown from a blob URL. The frame has the portraits' aspect ratio and a fixed height, so nothing shifts on load.
+  // The face is driven by the demo's real state (setAvatar), never by timers or decoration; the current state is
+  // data-state on the figure, which both the styles and the verification harness read.
+  var FACES = { idle: "sensei-avatar.webp", listening: "sensei-avatar-listening.webp", thinking: "sensei-avatar-thinking.webp",
+                speaking: "sensei-avatar-speaking.webp", happy: "sensei-avatar-happy.webp" };
+  var STATE_FACE = { idle: "idle", recording: "listening", working: "thinking", awaiting: "listening",
+                     speaking: "speaking", verified: "happy" };
+  var HAPPY_MS = 2500;
   var figure = el("figure", "hero-figure");
+  figure.dataset.state = "idle";
+  figure.dataset.face = "idle";
+  var glow = el("span", "avatar-glow");
   var avatarFrame = el("span", "avatar");
-  var avatar = el("img");
-  avatar.alt = "Sensei";
-  avatar.decoding = "async";
-  avatarFrame.appendChild(avatar);
+  var faceImgs = {};
+  Object.keys(FACES).forEach(function (name) {
+    var img = el("img", "face" + (name === "idle" ? " on" : ""));
+    img.alt = name === "idle" ? "Sensei" : "";
+    if (name !== "idle") { img.setAttribute("aria-hidden", "true"); }
+    img.decoding = "async";
+    faceImgs[name] = img;
+    avatarFrame.appendChild(img);
+  });
+  figure.appendChild(glow);
   figure.appendChild(avatarFrame);
-  fetch("/demo/app/sensei-avatar.webp", { headers: { "X-Sensei-Token": sessionStorage.getItem(KEY) || "" }, cache: "no-store" })
-    .then(function (r) { if (!r.ok) { throw new Error("avatar HTTP " + r.status); } return r.blob(); })
-    .then(function (blob) { avatar.src = URL.createObjectURL(blob); avatarFrame.classList.add("loaded"); })
-    .catch(function () { avatarFrame.classList.add("missing"); });  // decorative fallback: the gradient frame stays
+  var avatarTimer = null;
+
+  function loadFace(name) {
+    return fetch("/demo/app/" + FACES[name], { headers: { "X-Sensei-Token": sessionStorage.getItem(KEY) || "" }, cache: "no-store" })
+      .then(function (r) { if (!r.ok) { throw new Error("avatar HTTP " + r.status); } return r.blob(); })
+      .then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        faceImgs[name].src = url;
+        return (faceImgs[name].decode ? faceImgs[name].decode() : Promise.resolve()).then(function () {
+          faceImgs[name].dataset.ready = "1";
+          return url;
+        });
+      });
+  }
+
+  function showFace(name) {
+    var face = faceImgs[name] && faceImgs[name].dataset.ready ? name : "idle";  // not loaded yet: keep the idle face
+    Object.keys(faceImgs).forEach(function (n) { faceImgs[n].classList.toggle("on", n === face); });
+    figure.dataset.face = face;
+  }
+
+  function setAvatar(next) {
+    clearTimeout(avatarTimer);
+    figure.dataset.state = next;
+    showFace(STATE_FACE[next] || "idle");
+    if (next === "verified") {  // the happy beat after a verified completion, then back to idle
+      avatarTimer = setTimeout(function () { if (figure.dataset.state === "verified") { setAvatar("idle"); } }, HAPPY_MS);
+    }
+  }
+
+  // What the face settles on once the reply has been spoken: driven by the turn's real outcome.
+  function afterReply(d) {
+    if (d.outcome === "echoed" || d.outcome === "re_echoed") { return "awaiting"; }  // waiting on the human's yes or no
+    if (d.outcome === "executed" && d.hard_gate === "PASS") { return "verified"; }
+    return "idle";  // declined, answered, clarified, refused: back to idle (a "no" is the system working)
+  }
+
+  function settle(next) {
+    if (state.recorder || state.holding || state.busy) { return; }  // the visitor has already moved on
+    setAvatar(next);
+  }
+
+  // The tab icon: Sensei's head from the idle face, drawn from the token-fetched blob (no public asset route).
+  function setFavicon(url) {
+    var img = new Image();
+    img.onload = function () {
+      var c = document.createElement("canvas");
+      c.width = c.height = 64;
+      c.getContext("2d").drawImage(img, 120, 150, 920, 920, 0, 0, 64, 64);  // the head, in the portrait's 1168×2112 pixels
+      var link = document.querySelector("link[rel~='icon']") || document.head.appendChild(document.createElement("link"));
+      link.rel = "icon";
+      link.type = "image/png";
+      link.href = c.toDataURL("image/png");
+    };
+    img.src = url;
+  }
+
+  // The idle face first; the other four after first paint, so they don't compete with the page's initial load.
+  loadFace("idle").then(function (url) {
+    avatarFrame.classList.add("loaded");
+    setFavicon(url);
+    var later = window.requestIdleCallback || function (f) { return setTimeout(f, 200); };
+    requestAnimationFrame(function () {
+      later(function () {
+        ["listening", "thinking", "speaking", "happy"].reduce(function (chain, name) {
+          return chain.then(function () { return loadFace(name).catch(function () { /* that state keeps the idle face */ }); });
+        }, Promise.resolve()).then(function () {
+          avatarFrame.classList.add("faces-ready");
+          showFace(STATE_FACE[figure.dataset.state] || "idle");
+        });
+      });
+    });
+  }).catch(function () { avatarFrame.classList.add("missing"); });  // decorative fallback: the gradient frame stays
 
   var cards = el("section", "cards");
   var main = el("main", "grid");
@@ -226,14 +311,25 @@
     if (state.audio) { state.audio.pause(); state.audio = null; }
   }
 
-  function play(base64, type, onPlaying) {
+  function play(base64, type, onPlaying, onDone) {
     stopReply();
     var bytes = Uint8Array.from(atob(base64), function (c) { return c.charCodeAt(0); });
     var url = URL.createObjectURL(new Blob([bytes], { type: type }));
     var audio = new Audio(url);
     state.audio = audio;
-    function done() { URL.revokeObjectURL(url); if (state.audio === audio) { state.audio = null; } if (!state.recorder && !state.busy) { setOrb(null); } }
-    audio.addEventListener("playing", function () { if (state.audio === audio && !state.recorder) { setOrb("speaking"); } onPlaying(); }, { once: true });
+    var finished = false;
+    function done() {
+      if (finished) { return; }
+      finished = true;
+      URL.revokeObjectURL(url);
+      if (state.audio === audio) { state.audio = null; }
+      if (!state.recorder && !state.busy) { setOrb(null); }
+      if (onDone) { onDone(); }
+    }
+    audio.addEventListener("playing", function () {
+      if (state.audio === audio && !state.recorder) { setOrb("speaking"); setAvatar("speaking"); }
+      onPlaying();
+    }, { once: true });
     audio.addEventListener("ended", done, { once: true });
     audio.addEventListener("pause", done, { once: true });
     return audio.play();
@@ -254,11 +350,12 @@
     }
     var b = bubble("sensei", d.reply, meta);
     if (d.error) { showError("The reply couldn't be spoken: " + d.error); }
+    var next = afterReply(d);
     if (d.audio) {
       play(d.audio, d.audio_type, function () {
         b.querySelector(".meta").appendChild(el("span", "chip browser", "audio started in page " + ms(performance.now() - started) + " after you stopped"));
-      }).catch(function () { setOrb(null); showError("The browser blocked playback; click the page and try again."); });
-    } else { setOrb(null); }
+      }, function () { settle(next); }).catch(function () { setOrb(null); settle(next); showError("The browser blocked playback; click the page and try again."); });
+    } else { setOrb(null); settle(next); }
     if (d.spend) { showSpend(d.spend); }
   }
 
@@ -271,6 +368,7 @@
 
   function setBusy(on) {
     sendBtn.disabled = on;
+    if (on) { setAvatar("working"); }  // a request in flight: STT, tools, or a model answer being generated
     if (state.status && state.status.mode === "live") {
       talk.disabled = on && !state.recorder;
       if (on && !state.recorder) { setOrb("busy"); }
@@ -287,7 +385,7 @@
       state.busy = false;
       setBusy(false);
       handleTurn(d, started);
-    }).catch(function (e) { state.busy = false; setBusy(false); setOrb(null); showError(e.message); });
+    }).catch(function (e) { state.busy = false; setBusy(false); setOrb(null); setAvatar("idle"); showError(e.message); });
   }
 
   function micLive() {
@@ -324,13 +422,14 @@
         state.chunks = [];
         state.recorder = null;
         setOrb(null);
-        if (blob.size) { send(blob, (rec.mimeType || "audio/webm").split(";")[0]); } else { setBusy(false); }
+        if (blob.size) { send(blob, (rec.mimeType || "audio/webm").split(";")[0]); } else { setBusy(false); setAvatar("idle"); }
       });
       state.recorder = rec;
       rec.start();
       setOrb("recording");
+      setAvatar("recording");  // the mic is live and Sensei is listening
       if (!state.holding) { rec.stop(); }  // released before the microphone was ready
-    }).catch(function (e) { state.holding = false; setOrb(null); showError("Microphone unavailable: " + e.message); });
+    }).catch(function (e) { state.holding = false; setOrb(null); setAvatar("idle"); showError("Microphone unavailable: " + e.message); });
   }
 
   function stopRecording() { state.holding = false; if (state.recorder && state.recorder.state === "recording") { state.recorder.stop(); } }
@@ -403,6 +502,7 @@
       emptyLedger();
       showError("");
       scenarioLabel.textContent = d.scenario.title + " · " + d.scenario.kind;
+      setAvatar("idle");
       var lines = d.scenario.say.map(function (l) { return "“" + l + "”"; }).join(", then ");
       hint.textContent = (state.status.mode === "live" ? "Say " : "Type ") + lines;
       if (state.status.mode !== "live") { textInput.value = d.scenario.say[0]; textInput.focus(); }

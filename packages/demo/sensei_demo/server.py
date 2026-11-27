@@ -74,7 +74,10 @@ DEFAULT_TRACE_DIR = DEFAULT_STATE_DIR / "traces"
 SPEND_FILE = "daily-spend.json"
 STATIC_DIR = Path(__file__).with_name("static")
 # Fixed list: no path is taken from the URL. Token-protected like the page's app code.
-APP_FILES = {"app.js": "text/javascript", "app.css": "text/css", "sensei-avatar.webp": "image/webp"}
+APP_FILES = {"app.js": "text/javascript", "app.css": "text/css", "sensei-avatar.webp": "image/webp",
+             # The Live Avatar's expressions (#26): the same portrait, driven by the demo's state.
+             "sensei-avatar-listening.webp": "image/webp", "sensei-avatar-thinking.webp": "image/webp",
+             "sensei-avatar-speaking.webp": "image/webp", "sensei-avatar-happy.webp": "image/webp"}
 # Self-hosted fonts (SIL OFL; licenses alongside). Public, because @font-face can't send the token and fonts hold no data.
 FONT_FILES = {"mplus1-latin.woff2": "font/woff2", "spacegrotesk-latin.woff2": "font/woff2",
               "OFL-MPLUS1.txt": "text/plain; charset=utf-8", "OFL-SpaceGrotesk.txt": "text/plain; charset=utf-8"}
