@@ -91,26 +91,27 @@
   header.appendChild(brand);
   header.appendChild(modeBox);
 
+  // The top of the page: copy and scenario cards on the left, Sensei standing full-length on the right.
+  var top = el("div", "top-grid");
   var hero = el("section", "hero");
-  var heroTitle = el("div", "hero-title");
-  // Sensei's face. Fetched with the token like the rest of the app, then shown from a blob URL.
-  // The frame has a fixed size, so the layout doesn't shift while the image loads.
+  var h1 = el("h1");
+  h1.appendChild(document.createTextNode("Talk to Sensei. "));
+  h1.appendChild(el("span", "grad", "Watch it ask first."));
+  hero.appendChild(h1);
+  hero.appendChild(el("p", null, "Speak a request. Anything irreversible is read back to you and waits for your yes, and every permission decision streams into the ledger as it happens."));
+  // Sensei, head to shoes. Fetched with the token like the rest of the app, then shown from a blob URL.
+  // The frame has the image's own aspect ratio and a fixed height, so nothing is cropped and nothing shifts on load.
+  var figure = el("figure", "hero-figure");
   var avatarFrame = el("span", "avatar");
   var avatar = el("img");
   avatar.alt = "Sensei";
   avatar.decoding = "async";
   avatarFrame.appendChild(avatar);
-  heroTitle.appendChild(avatarFrame);
-  var h1 = el("h1");
-  h1.appendChild(document.createTextNode("Talk to Sensei. "));
-  h1.appendChild(el("span", "grad", "Watch it ask first."));
-  heroTitle.appendChild(h1);
-  hero.appendChild(heroTitle);
+  figure.appendChild(avatarFrame);
   fetch("/demo/app/sensei-avatar.webp", { headers: { "X-Sensei-Token": sessionStorage.getItem(KEY) || "" }, cache: "no-store" })
     .then(function (r) { if (!r.ok) { throw new Error("avatar HTTP " + r.status); } return r.blob(); })
     .then(function (blob) { avatar.src = URL.createObjectURL(blob); avatarFrame.classList.add("loaded"); })
     .catch(function () { avatarFrame.classList.add("missing"); });  // decorative fallback: the gradient frame stays
-  hero.appendChild(el("p", null, "Speak a request. Anything irreversible is read back to you and waits for your yes, and every permission decision streams into the ledger as it happens."));
 
   var cards = el("section", "cards");
   var main = el("main", "grid");
@@ -161,9 +162,11 @@
   foot.appendChild(demoData);
   foot.appendChild(spendBox);
 
+  top.appendChild(hero);
+  top.appendChild(figure);
+  top.appendChild(cards);
   root.appendChild(header);
-  root.appendChild(hero);
-  root.appendChild(cards);
+  root.appendChild(top);
   root.appendChild(main);
   root.appendChild(foot);
 
