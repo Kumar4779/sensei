@@ -70,7 +70,8 @@ DEFAULT_STATE_DIR = Path.home() / ".sensei" / "demo"
 DEFAULT_TRACE_DIR = DEFAULT_STATE_DIR / "traces"
 SPEND_FILE = "daily-spend.json"
 STATIC_DIR = Path(__file__).with_name("static")
-APP_FILES = {"app.js": "text/javascript", "app.css": "text/css"}  # fixed list: no path is taken from the URL
+# Fixed list: no path is taken from the URL. Token-protected like the page's app code.
+APP_FILES = {"app.js": "text/javascript", "app.css": "text/css", "sensei-avatar.webp": "image/webp"}
 # Self-hosted fonts (SIL OFL; licenses alongside). Public, because @font-face can't send the token and fonts hold no data.
 FONT_FILES = {"mplus1-latin.woff2": "font/woff2", "spacegrotesk-latin.woff2": "font/woff2",
               "OFL-MPLUS1.txt": "text/plain; charset=utf-8", "OFL-SpaceGrotesk.txt": "text/plain; charset=utf-8"}
@@ -81,7 +82,7 @@ KEEPALIVE_SECONDS = 15.0
 TTS_USD_PER_1K_CHARS = 0.06
 STT_USD_PER_MIN = 0.0043
 SHELL_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; "
-             "media-src blob:; connect-src 'self'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'; "
+             "media-src blob:; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; "
              "base-uri 'none'; form-action 'none'")
 log = logging.getLogger("sensei.demo")
 
