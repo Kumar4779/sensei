@@ -277,3 +277,15 @@ def test_fonts_are_public_allowlisted_and_licensed(simulated):
     for name in ("app.js", "..%2Fserver.py", "../app.js", "other.woff2"):
         assert simulated.get(f"/demo/fonts/{name}").status_code == 404
     assert "font-src 'self'" in simulated.get("/demo").headers["content-security-policy"]
+
+
+def test_the_avatar_is_served_unaltered_behind_the_token(simulated):
+    import hashlib
+    from sensei_demo.server import STATIC_DIR
+    assert simulated.get("/demo/app/sensei-avatar.webp").status_code == 401  # same posture as the app code
+    r = simulated.get("/demo/app/sensei-avatar.webp", headers=AUTH)
+    original = (STATIC_DIR / "sensei-avatar.webp").read_bytes()
+    assert r.status_code == 200 and r.headers["content-type"] == "image/webp" and r.headers["cache-control"] == "no-store"
+    assert len(r.content) == 345_294 and r.content[:4] == b"RIFF" and r.content[8:12] == b"WEBP"
+    assert hashlib.sha256(r.content).digest() == hashlib.sha256(original).digest()  # byte for byte, no re-encoding
+    assert "img-src 'self' data: blob:;" in simulated.get("/demo").headers["content-security-policy"]
