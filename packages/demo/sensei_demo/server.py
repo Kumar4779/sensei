@@ -71,6 +71,9 @@ DEFAULT_TRACE_DIR = DEFAULT_STATE_DIR / "traces"
 SPEND_FILE = "daily-spend.json"
 STATIC_DIR = Path(__file__).with_name("static")
 APP_FILES = {"app.js": "text/javascript", "app.css": "text/css"}  # fixed list: no path is taken from the URL
+# Self-hosted fonts (SIL OFL; licenses alongside). Public, because @font-face can't send the token and fonts hold no data.
+FONT_FILES = {"mplus1-latin.woff2": "font/woff2", "spacegrotesk-latin.woff2": "font/woff2",
+              "OFL-MPLUS1.txt": "text/plain; charset=utf-8", "OFL-SpaceGrotesk.txt": "text/plain; charset=utf-8"}
 MAX_AUDIO_BYTES = 2_000_000  # about a minute of browser Opus; a push-to-talk turn is a few seconds
 MAX_TEXT_CHARS = 500
 KEEPALIVE_SECONDS = 15.0
@@ -78,7 +81,7 @@ KEEPALIVE_SECONDS = 15.0
 TTS_USD_PER_1K_CHARS = 0.06
 STT_USD_PER_MIN = 0.0043
 SHELL_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; "
-             "media-src blob:; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; "
+             "media-src blob:; connect-src 'self'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'; "
              "base-uri 'none'; form-action 'none'")
 log = logging.getLogger("sensei.demo")
 
@@ -90,7 +93,9 @@ class Limits:
     """Public-abuse limits. The defaults suit one small instance shown to a handful of visitors at a time."""
 
     daily_usd: float = 5.00  # estimated provider spend per UTC day, across every session and run
-    sessions_per_ip: tuple[int, float] = (12, 3600.0)  # new sessions per client IP per hour
+    # New sessions per client IP per hour. Sessions cost nothing (spend is in utterances, limited below and by the
+    # daily ceiling), and every page load and card click starts one, so this only stops scripted session floods.
+    sessions_per_ip: tuple[int, float] = (60, 3600.0)
     turns_per_ip: tuple[int, float] = (40, 600.0)  # utterances per client IP per 10 minutes
     max_sessions: int = 8  # simultaneous sessions
     session_idle_seconds: float = 900.0  # a session idle this long stops counting toward max_sessions
@@ -210,6 +215,13 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
         return FileResponse(STATIC_DIR / "index.html", media_type="text/html", headers={
             "Cache-Control": "no-store", "Content-Security-Policy": SHELL_CSP,
             "Permissions-Policy": "microphone=(self), camera=(), geolocation=()"})
+
+    @app.get("/demo/fonts/{name}", include_in_schema=False)
+    def font_file(name: str):
+        if name not in FONT_FILES:
+            return _error(404, "not found")
+        return FileResponse(STATIC_DIR / "fonts" / name, media_type=FONT_FILES[name],
+                            headers={"Cache-Control": "public, max-age=604800, immutable"})
 
     @app.get("/demo/app/{name}", include_in_schema=False)
     def app_file(name: str, request: Request):
