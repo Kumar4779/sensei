@@ -289,3 +289,21 @@ def test_the_avatar_is_served_unaltered_behind_the_token(simulated):
     assert len(r.content) == 345_294 and r.content[:4] == b"RIFF" and r.content[8:12] == b"WEBP"
     assert hashlib.sha256(r.content).digest() == hashlib.sha256(original).digest()  # byte for byte, no re-encoding
     assert "img-src 'self' data: blob:;" in simulated.get("/demo").headers["content-security-policy"]
+
+
+@pytest.mark.parametrize("name, size", [("sensei-avatar-listening.webp", 371_296), ("sensei-avatar-thinking.webp", 373_520),
+                                        ("sensei-avatar-speaking.webp", 369_972), ("sensei-avatar-happy.webp", 397_886)])
+def test_the_live_avatar_faces_are_served_unaltered_behind_the_token(simulated, name, size):
+    import hashlib
+    from sensei_demo.server import STATIC_DIR
+    assert simulated.get(f"/demo/app/{name}").status_code == 401  # the same posture as the idle avatar
+    r = simulated.get(f"/demo/app/{name}", headers=AUTH)
+    original = (STATIC_DIR / name).read_bytes()
+    assert r.status_code == 200 and r.headers["content-type"] == "image/webp" and r.headers["cache-control"] == "no-store"
+    assert len(r.content) == size and r.content[:4] == b"RIFF" and r.content[8:12] == b"WEBP"
+    assert hashlib.sha256(r.content).digest() == hashlib.sha256(original).digest()  # byte for byte
+
+
+def test_the_favicon_needs_no_public_route(simulated):
+    assert '<link rel="icon" href="data:,">' in simulated.get("/demo").text  # stops the automatic /favicon.ico request
+    assert simulated.get("/favicon.ico").status_code == 404  # and no unauthenticated asset route was added

@@ -96,6 +96,28 @@ which the parser doesn't read yet (#16). As a side effect, a spoken dollar
 amount arrives as "$15", which the parser doesn't read either, so it gets a
 clarification. None of the cards uses a spoken amount.
 
+## Live Avatar (#26)
+
+Sensei's face follows the demo's real state, never timers or decoration.
+
+| Demo state | Face | Motion |
+|---|---|---|
+| idle | the idle portrait | a gentle bob |
+| recording (the orb is held, the mic is live) | listening | |
+| working (a request in flight: STT, a tool, or a model answer being generated) | thinking | |
+| awaiting approval (the echo was spoken; waiting for your yes or no) | listening | a glow pulse |
+| speaking (the reply's audio is playing) | speaking | a subtle bounce |
+| verified (a turn executed and the hard gate passed) | happy for 2.5 s, then idle | |
+| declined | straight back to idle | |
+
+A "no" is the system working as designed, so Sensei never looks sad about it.
+
+- **Transitions:** faces crossfade in 250 ms. All motion is `transform` and `opacity` only, and `prefers-reduced-motion` turns the bob, bounce and pulse off.
+- **Test hook:** the state is `data-state` on the avatar figure, so the headless harness can watch it.
+- **Assets:** five portraits of the same avatar at 1168×2112, served exactly like the idle one: token-gated, byte-for-byte, with tests.
+- **Page weight:** the four new faces add **1,512,674 bytes (about 1.51 MB)**: listening 371,296, thinking 373,520, speaking 369,972, happy 397,886. With the idle face, the avatar totals 1,857,968 bytes. The idle face loads first; the other four are fetched one at a time after first paint, when the browser is idle, so the page's initial load isn't held up. Until a face has loaded, that state shows the idle face.
+- **Favicon:** the shell's `<link rel="icon" href="data:,">` stops the browser's automatic `/favicon.ico` request. Once signed in, the app draws Sensei's head from the token-fetched idle face into a 64×64 PNG and makes it the tab icon. No unauthenticated asset route is added.
+
 ## Free-form questions (#25)
 
 The parser runs first, exactly as before: a command takes the deterministic
