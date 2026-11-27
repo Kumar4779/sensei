@@ -10,6 +10,11 @@ the code they grade.
 - `doc-summary-001`: a structured summary of a synthetic public-style article
   (API_OK, Slice 37). It is the first task that runs on an API route.
 
+**SenseiBench v1** ([`senseibench/`](senseibench/README.md), #28) freezes the
+cross-module benchmark: the core tasks above, Voice Lab's voice-bench-v2,
+GraphRAG's v1 eval set, and MacPilot's 20-task design (defined-only, 0
+scored). It has one runner with a swappable backend.
+
 Every run is published in [`results/`](results/), failures included, and
 summarised in the main [README](../README.md). The private holdout split
 designed in [DESIGN.md](../DESIGN.md) §4 does not exist yet, so no number here

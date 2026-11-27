@@ -1174,3 +1174,46 @@ frozen task sets and the harness are unchanged.
   - Send flow: echo → awaiting → "yes" → working → speaking → verified (happy, 2.52 s) → idle.
   - Pay decline: awaiting → "no" → speaking → idle.
 - **Tests:** demo 93 (88 + 4 face assets + 1 favicon).
+
+## SenseiBench v1: the cross-module benchmark, frozen, with a model-swapping runner (#28)
+
+One benchmark across the product, assembled from frozen sets that already
+exist. No new tasks were invented, and no module's task sets, gate, parser or
+harness changed.
+
+- **Families, with provenance pinned** in `evals/senseibench/v1/manifest.json`
+  (the SHA-256 of every source; a test pins the manifest's own hash):
+  - **core:** 3 tasks, the current version of each package in `evals/tasks`;
+    the superseded adversarial v1 and v2 stay frozen, outside the union.
+  - **voice:** the 10 voice-bench-v2 tasks, through the voice harness as-is.
+  - **graphrag:** 100 probes and 10 leak-gate canaries over the frozen v1
+    corpus.
+  - **macpilot:** 20 tasks listed as defined-only, with 0 scored. Its
+    benchmark is design only, with no fixture, checker or agent yet.
+- **Runner:** `evals/senseibench/senseibench.py run` with `--family`,
+  `--backend fake|kimi` (core's `cheap_api` route) and `--k` (default 3), plus
+  `--max-usd`.
+  - Output is one results JSON per run, never overwritten. Its header lists
+    every family version included.
+  - It reports per-task and per-family pass^1 and pass^k, cost and latency,
+    plus the gate decisions, hard-gate verdicts, checker outcomes and the
+    leak gate.
+  - Scoring is deterministic only.
+- **`LOCAL_ONLY` core tasks are never sent to an API route,** so on the kimi
+  backend they're reported as not applicable. Voice and GraphRAG are
+  model-free, so they're backend-independent.
+- **CI:** a new `senseibench` job (Python 3.11–3.13) runs the definition tests
+  only: manifest integrity, schema, ground-truth isolation and a fake-backend
+  smoke. No live model calls.
+- **Smoke run** (core against Kimi, k=3, a $0.50 hard cap set beforehand):
+  - doc-summary-001 passed 3/3 (pass^1 = pass^3 = 1.00, mean 12.0 s), for an
+    estimated spend of $0.0631.
+  - The two `LOCAL_ONLY` brief tasks are not applicable on this backend.
+  - One call hung about 8 minutes, failed as `unreachable`, and was retried
+    once by core's executor; the retry passed.
+- **Fake-backend baseline** (all families):
+  - voice 10/10, hard gate PASS;
+  - graphrag pass^1 0.90 (89/100 probes, every failure an abstention rather
+    than a leak; 10/10 canaries), leak gate PASS;
+  - core 0/3 on canned fake text, as expected.
+- **Tests:** senseibench 55, all offline.
