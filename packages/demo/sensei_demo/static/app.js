@@ -35,6 +35,8 @@
     violation: ["M12 4l9 16H3z", "M12 10v4", "M12 17v.5"],
     error: ["M12 4l9 16H3z", "M12 10v4", "M12 17v.5"],
     turn: ["M12 4a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V7a3 3 0 0 1 3-3z", "M6 11a6 6 0 0 0 12 0", "M12 17v3"],
+    route: ["M4 6h10a4 4 0 0 1 0 8H8", "M11 11l-3 3 3 3", "M17 18h3"],
+    model: ["M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z", "M18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"],
     minor: ["M12 12h.01"]
   };
   var CARD_ICONS = { brief: "sun", note: "send", pay: "card" };
@@ -175,7 +177,7 @@
   function emptyLog() {
     log.textContent = "";
     log.appendChild(el("p", "empty", state.status && state.status.mode === "live"
-      ? "Hold the orb and say the line on the card. Sensei answers out loud."
+      ? "Hold the orb and say the line on the card, or ask Sensei anything. It answers out loud."
       : "Type the line on the card and press Send."));
   }
 
@@ -243,6 +245,9 @@
     if (d.real_path) { heardMeta.push("STT " + ms(d.real_path.stt_latency_ms) + " (trace)"); }
     bubble("you", d.heard || "(nothing heard)", heardMeta);
     var meta = [{ text: "outcome: " + d.outcome }, { text: "hard gate " + d.hard_gate, cls: d.hard_gate === "PASS" ? "good" : "bad" }];
+    if (d.model && d.outcome === "answered") {
+      meta.push({ text: "answered by " + d.model.model + " · ≈$" + Number(d.model.est_cost_usd).toFixed(5) + " · read-only", cls: "model" });
+    }
     if (d.real_path) {
       meta.push("time to first audio " + ms(d.real_path.time_to_first_audio_ms) + " (trace, server)");
       meta.push("TTS first byte " + ms(d.real_path.tts_first_byte_ms) + " (trace)");
@@ -439,7 +444,8 @@
     });
   }
 
-  var SHOWN = { gate: 1, proposed: 1, echoed: 1, approved: 1, denied: 1, executed: 1, verified: 1, violation: 1, turn: 1, error: 1 };
+  var SHOWN = { gate: 1, proposed: 1, echoed: 1, approved: 1, denied: 1, executed: 1, verified: 1, violation: 1, turn: 1, error: 1,
+                route: 1, model: 1 };
 
   function addStep(r) {
     var s = r.step || { kind: "minor", title: r.event_type, detail: "" };

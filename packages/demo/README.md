@@ -96,6 +96,45 @@ which the parser doesn't read yet (#16). As a side effect, a spoken dollar
 amount arrives as "$15", which the parser doesn't read either, so it gets a
 clarification. None of the cards uses a spoken amount.
 
+## Free-form questions (#25)
+
+The parser runs first, exactly as before: a command takes the deterministic
+path through the gate and the echo machine. Only an utterance that matches no
+command goes to core's model backend.
+- **What counts:** a clarification with reason "unrecognised", heard at good
+  confidence. Low-confidence input and ambiguous or incomplete commands ("send
+  it") still clarify.
+- **How it's called:** one core `Executor.run_once` through core's `Router`,
+  which sends `API_OK` "simple" requests to `cheap_api` (Kimi via the Moonshot
+  API, Slice 35). There's no second model integration.
+- **What it gets:** a Sensei system prompt (a warm, direct teacher-mentor,
+  answering in short, plain sentences made for speech) and the session's
+  recent turns.
+- **Sensitivity:** voice commands stay `LOCAL_ONLY`. A public-demo visitor's
+  question is classed `API_OK`: their speech already goes to cloud speech
+  providers, and the demo holds only synthetic data.
+- **Ledger:** core traces `route_decision` and `model_call` (the model and
+  core's estimated cost) into the session's own trace, so the ledger shows
+  "Routed to cheap_api" and "Answered by kimi-k3". The call goes into the
+  egress log too, as sizes and a digest, never content.
+- **Read-only by construction:** the model gets a prompt and returns text. It
+  has no tools, its text never reaches the parser, and nothing it says can
+  propose, confirm or run an action.
+- **Spend:** the model's cost counts toward the per-run cap and the $5/day
+  ceiling. If either is reached, Sensei says so instead of calling.
+- **Failure honesty:** if the call fails, times out, hits quota or returns
+  nothing, Sensei says it can't reach its model right now, and the ledger
+  shows "No model answer" with the reason. It never fakes an answer.
+- **Keys:** the Moonshot key comes from core's Keychain item
+  (`sensei-kimi-api-key`) locally, and from `KIMI_API_KEY` with `--keys env`
+  on Fly.
+- **Prompt:** for facts that can change, the model gives its best answer
+  with one short note that it may have changed, and declines only when it
+  genuinely doesn't know.
+- **Latency:** Kimi K3 reasons before answering, so a spoken answer starts
+  about 4–6 s after you stop talking on the public site (occasionally more);
+  commands are unaffected.
+
 ## Hosted on Fly.io (Demo Slice 2)
 
 [sensei-talk.fly.dev](https://sensei-talk.fly.dev) runs the same server on
@@ -108,7 +147,8 @@ one small Fly.io machine: shared-cpu-1x, 256 MB, in Chicago (`ord`).
   `SENSEI_DEMO_TOKEN` reach the machine only as Fly secrets (environment
   variables). The server reads the keys with `--keys env`, chosen explicitly;
   the local default stays the Keychain, with no fallback between the two.
-  They were set straight from the Keychain, so no value is ever printed:
+  `KIMI_API_KEY` (#25) is set the same way, for free-form answers. They were
+  set straight from the Keychain, so no value is ever printed:
 
   ```
   security add-generic-password -a sensei -s sensei-demo-token -U -w "$(openssl rand -hex 24)"

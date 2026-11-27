@@ -21,10 +21,24 @@ import os
 import sys
 from pathlib import Path
 
+from sensei_core.clients import KimiClient
+from sensei_core.config import load_models
+
 from voice.speech import KEY_SOURCES, SpeechUnavailable, make_stt, make_tts
 
 import sensei_demo.server as server
 from sensei_demo.server import DEFAULT_PORT, TOKEN_ENV, DemoConfigError, Limits, bind_host, create_app
+
+KIMI_KEY_ENV = "KIMI_API_KEY"  # the hosted path's Moonshot key (--keys env); locally, core's Keychain item
+
+
+def model_client(keys: str) -> KimiClient:
+    """Core's own Kimi client for the cheap_api route (#25). With --keys env the key is read per call from
+    KIMI_API_KEY; otherwise core's default reads the Keychain. No fallback between the two."""
+    route = load_models()["cheap_api"]
+    if keys == "env":
+        return KimiClient.for_route(route, timeout=20.0, key=lambda: os.environ.get(KIMI_KEY_ENV, "").strip() or None)
+    return KimiClient.for_route(route, timeout=20.0)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,9 +71,12 @@ def main(argv: list[str] | None = None) -> int:
             keys = args.keys
             make_stt("deepgram", key_source=keys), make_tts("elevenlabs", key_source=keys, player=lambda a: None)
             # smart_format: spoken numbers arrive as digits ("invoice 204"), which the pay card needs.
+            # Free-form questions go to core's model backend (#25); a missing Moonshot key isn't fatal here: the
+            # visitor hears that the model is unreachable, and the ledger shows why.
             app = create_app("live", stt_factory=lambda: make_stt("deepgram", key_source=keys, smart_format=True),
                              tts_factory=lambda player: make_tts("elevenlabs", key_source=keys, player=player),
-                             trace_dir=trace_dir, state_dir=state_dir, max_usd=args.max_usd, limits=limits)
+                             trace_dir=trace_dir, state_dir=state_dir, max_usd=args.max_usd, limits=limits,
+                             model_client=model_client(keys))
     except SpeechUnavailable as e:
         print(f"sensei-demo: {e}\n  (run with --simulated to develop without keys)", file=sys.stderr)
         return 2
