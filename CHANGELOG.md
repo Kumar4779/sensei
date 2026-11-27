@@ -1117,3 +1117,43 @@ task sets are unchanged.
     out ordinary visitors. Utterances and spend stay limited.
 - **Tests:** demo 70 (54 + 16), voice 179 (174 + 5), all offline. No test
   writes under `~/.sensei`.
+
+## Talk to Sensei answers free-form questions through core's model backend (#25)
+
+A question the parser can't read as any command used to end in a clarification,
+even when it was heard perfectly. Now it's answered by core's existing
+`cheap_api` route (Kimi, Slice 35). The parser, the gate, the echo machine, the
+frozen task sets and the harness are unchanged.
+
+- **Fallback only.** The parser runs first, and commands keep the deterministic
+  path. Only an "unrecognised" clarification heard at good confidence goes to
+  the model; low-confidence input and incomplete commands still clarify.
+- **Reuse, not a second integration.** Each answer is one core
+  `Executor.run_once`, so routing (`API_OK` + "simple" → `cheap_api`, never
+  frontier), cost estimation, the `route_decision` and `model_call` trace
+  events, the egress log and Kimi's quota handling all come from core.
+- **Honest ledger.** The ledger shows the routing, the answer (model and core's
+  estimated cost), or "No model answer" with the reason.
+- **Read-only by construction.** The model has no tools, its text never reaches
+  the parser, and the executor holds only the `cheap_api` client.
+- **Spend.** Model cost counts toward the per-run cap and the $5/day ceiling,
+  and a reached cap is said aloud instead of calling.
+- **Failure honesty.** A failure, timeout, quota error or empty reply gets the
+  spoken "I can't reach my model right now" and a `model_error` entry in the
+  ledger.
+- **Keys.** The Keychain locally; `KIMI_API_KEY` as a staged Fly secret, set
+  from the Keychain without printing it.
+- **Prompt.** For facts that can change, the model gives its best answer and
+  adds one short note that it may have changed; it declines only when it
+  genuinely doesn't know. An earlier wording ("say so instead of guessing")
+  made it refuse the president question once on the public site.
+- **Verified by voice, locally and on the public site.** "Who is the president
+  of the United States?" got "Donald Trump, who took office in January 2025",
+  with a short note that it can change. The capital of Japan got Tokyo, and a
+  leap year got 366 days.
+  - Public time to first audio for a model answer was 3.8–5.9 s; the model call
+    itself took 2.9–4.8 s, because Kimi K3 reasons first.
+  - Commands are unaffected (0.4–0.7 s), and the three scenarios are
+    unchanged.
+  - Speech came from the substitute microphone, as in earlier checks.
+- **Tests:** demo 88 (71 + 17), all offline with a fake model client.

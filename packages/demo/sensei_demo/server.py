@@ -55,10 +55,13 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Stre
 
 from voice.adapters import FakeSTT, FakeTTS, ScriptedUtterance, SpeechToText, TextToSpeech
 from voice.cli import parse_line
-from voice.loop import VoiceSession
 from voice.speech import SpeechUnavailable
 from voice.verify import verify_run
 
+from sensei_core.egress import EgressLog
+from sensei_core.router import ModelClient
+
+from sensei_demo.answers import AnsweringVoiceSession, ModelAnswers
 from sensei_demo.ledger import Ledger, LedgerTrace
 from sensei_demo.limits import DailySpend, RateLimiter, client_ip, utc_today
 from sensei_demo.scenarios import DEMO_DATA_LABEL, SCENARIOS, world_for
@@ -127,7 +130,7 @@ class DemoSession:
     scenario: str
     ledger: Ledger
     trace: LedgerTrace
-    voice: VoiceSession
+    voice: AnsweringVoiceSession
     ip: str = ""
     last_used: float = 0.0
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -144,7 +147,8 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
                tts_factory: Callable[[Callable[[bytes], None]], TextToSpeech] | None = None,
                trace_dir: str | Path | None = None, max_usd: float = 1.00,
                token: str | None = None, limits: Limits = Limits(), state_dir: str | Path | None = None,
-               clock: Callable[[], float] = time.monotonic, today: Callable[[], str] = utc_today) -> FastAPI:
+               clock: Callable[[], float] = time.monotonic, today: Callable[[], str] = utc_today,
+               model_client: ModelClient | None = None) -> FastAPI:
     token = token if token is not None else os.environ.get(TOKEN_ENV, "")
     if not token:  # fail closed: never serve without auth
         raise DemoConfigError(f"{TOKEN_ENV} is not set; refusing to start the demo without auth")
@@ -164,10 +168,21 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
     session_rate = RateLimiter(*limits.sessions_per_ip, clock=clock)
     turn_rate = RateLimiter(*limits.turns_per_ip, clock=clock)
 
+    model_spent = [0.0]  # core's estimated model cost this server run (#25)
+
     def spent_raw() -> float:
         chars = getattr(live_tts, "characters", 0)
         seconds = getattr(live_stt, "audio_seconds", 0.0)
-        return chars / 1000 * TTS_USD_PER_1K_CHARS + seconds / 60 * STT_USD_PER_MIN
+        return chars / 1000 * TTS_USD_PER_1K_CHARS + seconds / 60 * STT_USD_PER_MIN + model_spent[0]
+
+    def budget_left() -> float:
+        """What the model may still spend: the smaller of the per-run cap and today's ceiling."""
+        return min(max_usd - spent_raw(), limits.daily_usd - daily.spent())
+
+    # Free-form answers through core's model backend (#25): only when a model client is configured.
+    answers = None if model_client is None else ModelAnswers(
+        model_client, egress=EgressLog(state_dir / "egress.jsonl"), budget_left=budget_left,
+        on_spend=lambda usd: model_spent.__setitem__(0, model_spent[0] + usd))
 
     def spent_usd() -> float:
         return round(spent_raw(), 4)
@@ -245,6 +260,8 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
             "stt": adapter(live_stt) if mode == "live" else {"provider": "fake-stt", "model": None},
             "tts": adapter(live_tts) if mode == "live" else {"provider": "fake-tts", "model": None},
             "demo_data": DEMO_DATA_LABEL,
+            "model": None if answers is None else {"route": "cheap_api", "model": answers.model,
+                                                    "detail": "Answers questions no command matches. Read-only: no tools."},
             "scenarios": [s.to_dict() for s in SCENARIOS.values()]}
         if mode == "live":
             body["spend"] = spend_body()
@@ -276,9 +293,9 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
         ledger = Ledger()
         trace = LedgerTrace(trace_dir / f"demo-{sid}.jsonl", run_id=f"demo-{sid}", session_id=f"demo-{scenario}",
                             ledger=ledger)
-        voice = VoiceSession(trace, world=world_for(scenario),
-                             stt=live_stt if mode == "live" else FakeSTT(),
-                             tts=live_tts if mode == "live" else FakeTTS())
+        voice = AnsweringVoiceSession(trace, world=world_for(scenario),
+                                      stt=live_stt if mode == "live" else FakeSTT(),
+                                      tts=live_tts if mode == "live" else FakeTTS(), answers=answers)
         sessions[sid] = DemoSession(sid, scenario, ledger, trace, voice, ip=ip, last_used=clock())
         return JSONResponse({"session_id": sid, "scenario": SCENARIOS[scenario].to_dict()},
                             status_code=201, headers={"Cache-Control": "no-store"})
@@ -310,6 +327,7 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
         t = turns[-1]
         body = {"turn": t["turn"], "heard": t["transcript"], "confidence": t["stt_confidence"], "outcome": t["outcome"],
                 "reply": t["reply"], "latency_ms": t["latency_ms"], "real_path": t.get("real_path"),
+                "model": t.get("model_answer"),
                 "audio": base64.b64encode(audio).decode("ascii") if audio else None,
                 "audio_type": "audio/mpeg" if audio else None,
                 "hard_gate": "PASS" if verdict.passed else "FAIL"}
@@ -404,6 +422,8 @@ def create_app(mode: Mode, *, stt_factory: Callable[[], SpeechToText] | None = N
     app.state.sessions = sessions
     app.state.live_stt = live_stt
     app.state.daily = daily
+    app.state.answers = answers
+    app.state.model_spent = model_spent
     app.state.spent_usd = spent_usd
     return app
 

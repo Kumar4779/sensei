@@ -21,7 +21,14 @@ from sensei_core.trace import TraceWriter
 
 # The events a visitor watches; anything else in the trace is shown as a minor step.
 LEDGER_EVENTS = ("permission_decision", "action_proposed", "action_echoed", "action_confirmed",
-                 "action_declined", "tool_executed", "hard_gate_violation", "hard_gate_check")
+                 "action_declined", "tool_executed", "hard_gate_violation", "hard_gate_check",
+                 "route_decision", "model_call", "model_error")  # the last three: free-form answers (#25)
+# Core's Kimi error classes (sensei_core/clients.py), plus the demo's own spend_limit.
+MODEL_ERRORS = {"spend_limit": "the demo's spending limit is reached", "quota_exhausted": "the model's quota is used up",
+                "timeout": "the model timed out", "unreachable": "the model can't be reached",
+                "key_absent": "no model key is configured", "auth_failed": "the model key was refused",
+                "rate_limited": "the model is rate-limiting requests", "server_error": "the model service had an error",
+                "bad_request": "the model rejected the request", "bad_response": "the model's reply was empty"}
 GATE_WORDS = {"ALLOW": ("allowed", "No approval needed for this tier."),
               "HALT_FOR_APPROVAL": ("needs your approval", "Irreversible: it must be read back and confirmed first."),
               "DENY": ("denied", "Not in the voice manifest, so it can't run.")}
@@ -102,6 +109,18 @@ def step(event_type: str, p: dict[str, Any]) -> dict[str, str]:
                     "detail": f"{n} irreversible action{'s' if n != 1 else ''} ran, each echoed and confirmed first."
                     if n else "Nothing irreversible ran."}
         return {"kind": "violation", "title": "Verified: hard gate FAIL", "detail": "; ".join(p.get("violations", []))}
+    if event_type == "route_decision":
+        return {"kind": "route", "title": f"Routed to {p.get('route')} ({p.get('model')})",
+                "detail": f"No command matched, so this is a question. {p.get('sensitivity_class')}: {p.get('reason')}."}
+    if event_type == "model_call":
+        cost = p.get("est_cost_usd") or 0.0
+        return {"kind": "model", "title": f"Answered by {p.get('model')}",
+                "detail": f"≈${cost:.5f} (core's estimate) · {round(p.get('latency_ms') or 0)} ms · read-only: no tools, "
+                          "nothing can run"}
+    if event_type == "model_error":
+        why = MODEL_ERRORS.get(str(p.get("error_class")), str(p.get("error_class")))
+        return {"kind": "error", "title": "No model answer", "detail": f"{p.get('model')}: {why}. Sensei said so instead "
+                                                                       "of guessing."}
     if event_type == "speech_error":
         what = "hearing you" if p.get("stage") == "stt" else "speaking the reply"
         return {"kind": "error", "title": f"Speech error while {what}",
