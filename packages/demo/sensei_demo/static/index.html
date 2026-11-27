@@ -2,34 +2,61 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#07070b">
 <title>Talk to Sensei</title>
 <!--
-  Public shell (Demo Slice 1), after the gateway's /ui. It holds no data. It
-  asks for the demo token once, keeps it in sessionStorage only (gone when the
-  tab closes), and loads the app (/demo/app/app.css, /demo/app/app.js) with
-  X-Sensei-Token, which every data endpoint requires too.
+  Public shell (Demo Slice 1, restyled). It holds no data. It asks for the demo
+  token once, keeps it in sessionStorage only (gone when the tab closes), and
+  loads the app (/demo/app/app.css, /demo/app/app.js) with X-Sensei-Token,
+  which every data endpoint requires too. Fonts are self-hosted (SIL OFL).
 -->
 <style>
-  :root { color-scheme: light dark; --bg: #f6f6f4; --fg: #15181c; --muted: #5f6670; --card: #fff; --line: #e1e1dc; --accent: #1f5fbf; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #111418; --fg: #eceae5; --muted: #9aa1aa; --card: #1a1e24; --line: #2b3038; --accent: #7aa7ff; } }
-  body { margin: 0; font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--fg); }
-  #login { max-width: 420px; margin: 0 auto; padding: 64px 20px 24px; }
-  #login h1 { font-size: 28px; margin: 0 0 4px; }
-  #login p { color: var(--muted); margin: 0 0 20px; }
-  #login input { width: 100%; box-sizing: border-box; font: inherit; padding: 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
-  #login button { margin-top: 12px; width: 100%; font: inherit; font-weight: 600; padding: 12px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; }
-  #login .err { color: #c0392b; min-height: 1.4em; margin-top: 10px; }
+  @font-face { font-family: "M PLUS 1"; src: url("/demo/fonts/mplus1-latin.woff2") format("woff2"); font-weight: 300 800; font-display: swap; }
+  @font-face { font-family: "Space Grotesk"; src: url("/demo/fonts/spacegrotesk-latin.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+  :root { color-scheme: dark; --bg: #07070b; --fg: #f4f4f7; --muted: #9a9aae; --line: rgba(255,255,255,.09); --glass: rgba(255,255,255,.04); }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }  /* the sign-in card must really go once the app loads */
+  html, body { margin: 0; min-height: 100%; }
+  body { font: 16px/1.5 "M PLUS 1", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--fg);
+    -webkit-font-smoothing: antialiased; }
+  body::before { content: ""; position: fixed; inset: -20vmax; z-index: -1; pointer-events: none;
+    background: radial-gradient(40vmax 40vmax at 20% 10%, rgba(124,92,255,.28), transparent 60%),
+                radial-gradient(36vmax 36vmax at 85% 20%, rgba(34,211,238,.18), transparent 60%),
+                radial-gradient(40vmax 40vmax at 60% 95%, rgba(255,92,168,.16), transparent 60%); }
+  #login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .gate { width: 100%; max-width: 420px; padding: 36px 32px 28px; border-radius: 28px; background: rgba(16,16,24,.82);
+    border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.45); text-align: center; }
+  .orb { width: 72px; height: 72px; margin: 0 auto 22px; border-radius: 50%;
+    background: conic-gradient(from 210deg, #7c5cff, #22d3ee, #ff5ca8, #7c5cff); filter: saturate(1.1);
+    box-shadow: 0 0 60px rgba(124,92,255,.55), inset 0 0 18px rgba(255,255,255,.35); animation: breathe 4s ease-in-out infinite; will-change: transform; }
+  @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+  h1 { font: 700 32px/1.1 "Space Grotesk", "M PLUS 1", system-ui, sans-serif; letter-spacing: -.02em; margin: 0 0 8px; }
+  p { color: var(--muted); margin: 0 0 24px; font-size: 15px; }
+  input { width: 100%; font: inherit; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line);
+    background: rgba(0,0,0,.35); color: var(--fg); outline: none; transition: border-color .2s, box-shadow .2s; }
+  input:focus { border-color: rgba(124,92,255,.7); box-shadow: 0 0 0 4px rgba(124,92,255,.18); }
+  button { margin-top: 12px; width: 100%; font: 600 16px "Space Grotesk", system-ui, sans-serif; padding: 14px; border: 0; border-radius: 14px; cursor: pointer; color: #fff;
+    background: linear-gradient(135deg, #7c5cff, #4f7bff 55%, #22d3ee); box-shadow: 0 10px 30px rgba(79,123,255,.35); transition: transform .15s, box-shadow .2s; }
+  button:hover { transform: translateY(-1px); box-shadow: 0 14px 36px rgba(79,123,255,.45); }
+  button:focus-visible { outline: 3px solid rgba(34,211,238,.6); outline-offset: 3px; }
+  .err { color: #ff8a95; min-height: 1.4em; margin-top: 12px; font-size: 14px; }
+  .fine { margin-top: 18px; font-size: 12px; color: #6e6e82; }
+  @media (prefers-reduced-motion: reduce) { .orb { animation: none; } button { transition: none; } }
 </style>
 </head>
 <body>
 <form id="login" autocomplete="off">
-  <h1>Talk to Sensei</h1>
-  <p>Enter the demo token. It is kept for this tab only.</p>
-  <input id="token" type="password" autocapitalize="off" spellcheck="false" placeholder="SENSEI_DEMO_TOKEN" aria-label="Demo token" required>
-  <button type="submit">Open</button>
-  <div class="err" id="err" role="alert"></div>
+  <div class="gate">
+    <div class="orb" aria-hidden="true"></div>
+    <h1>Talk to Sensei</h1>
+    <p>An AI agent that asks before it acts. Enter your access token to begin.</p>
+    <input id="token" type="password" autocapitalize="off" spellcheck="false" placeholder="Access token" aria-label="Access token" required>
+    <button type="submit">Start talking</button>
+    <div class="err" id="err" role="alert"></div>
+    <div class="fine">Your token stays in this tab only.</div>
+  </div>
 </form>
 <div id="app" hidden></div>
 <script>
@@ -46,7 +73,7 @@
       fetch("/demo/app/app.js", { headers: h, cache: "no-store" })
     ]).then(function (rs) {
       if (rs[0].status === 401 || rs[1].status === 401) { throw new Error("unauthorized"); }
-      if (!rs[0].ok || !rs[1].ok) { throw new Error("could not load the app (HTTP " + rs[1].status + ")"); }
+      if (!rs[0].ok || !rs[1].ok) { throw new Error("Couldn't load the app (HTTP " + rs[1].status + ")."); }
       return Promise.all([rs[0].text(), rs[1].text()]);
     }).then(function (parts) {
       var style = document.createElement("style");
@@ -67,7 +94,7 @@
     sessionStorage.setItem(KEY, token);  // set before the app script runs, which reads it
     load(token).catch(function (x) {
       sessionStorage.removeItem(KEY);
-      err.textContent = x.message === "unauthorized" ? "That token was rejected." : x.message;
+      err.textContent = x.message === "unauthorized" ? "That token wasn't accepted." : x.message;
     });
   });
 

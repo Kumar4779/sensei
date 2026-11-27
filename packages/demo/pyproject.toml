@@ -26,7 +26,7 @@ sensei-demo = "sensei_demo.__main__:main"
 packages = ["sensei_demo"]
 
 [tool.setuptools.package-data]
-sensei_demo = ["static/*"]
+sensei_demo = ["static/*", "static/fonts/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1062,7 +1062,7 @@ task sets are unchanged.
   - **Daily ceiling:** a global $5.00 a day across every session and run,
     persisted (0600, atomic writes) and rolled over at 00:00 UTC. It sits on
     top of the $1.00 per-run cap.
-  - **Rate limits per client IP:** 12 new sessions an hour and 40
+  - **Rate limits per client IP:** 60 new sessions an hour and 40
     utterances per 10 minutes, with `Retry-After` on refusal.
   - **Session cap:** 8 simultaneous sessions. Idle ones stop counting after
     15 minutes, and switching scenario cards frees only the visitor's own
@@ -1092,5 +1092,28 @@ task sets are unchanged.
 - **Cost:** the machine is $2.19 a month if always on, and the volume $0.15.
   With auto-stop, an idle demo costs about the volume. Provider spend for the
   verification run was about $0.03.
-- **Tests:** demo 69 (54 + 15), voice 179 (174 + 5), all offline. No test
+- **Redesign, and the push-to-talk fixes it needed:**
+  - **Look:** dark, with a glowing orb for push-to-talk and an icon timeline
+    for the ledger. The fonts are self-hosted M PLUS 1 and Space Grotesk (SIL
+    OFL, licenses alongside) on a public, allowlisted `/demo/fonts/` route;
+    the CSP allows `font-src 'self'` only.
+  - **Sign-in card:** `#login { display: grid }` overrode `hidden`, so it
+    stayed on screen and pushed the app a full screen down. `[hidden]` now
+    always wins.
+  - **Microphone:** it stays open between presses (released after 30 s idle),
+    so a press records at once. Press-to-listening went from up to 9.8 s to
+    5–7 ms, and the first words are no longer clipped.
+  - **Holding the orb:** pointer capture means drifting off the orb while
+    holding no longer ends the turn. Pressing it stops Sensei's reply, so the
+    reply isn't recorded into your turn.
+  - **Rendering:** no live `backdrop-filter` behind animations, and the orb
+    animates only `transform` and `opacity`, so the page no longer starves its
+    own main thread.
+  - **Layout:** the orb is on the first screen at 1440×800, 1360×1000, 1280×720
+    and 390×844. Its dock is sticky, and on phones the cards become a swipe
+    row.
+  - **Session limit:** new sessions per IP went from 12 to 60 an hour. Every
+    page load and card click starts a session and costs nothing, so 12 locked
+    out ordinary visitors. Utterances and spend stay limited.
+- **Tests:** demo 70 (54 + 16), voice 179 (174 + 5), all offline. No test
   writes under `~/.sensei`.

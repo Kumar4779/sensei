@@ -265,3 +265,15 @@ def test_the_trace_is_the_voice_loops_own(simulated, tmp_path):
     events = read_events(tmp_path / "traces" / f"demo-{sid}.jsonl")
     assert [e["event_type"] for e in events] == ["permission_decision", "tool_executed", "voice_turn", "hard_gate_check"]
     assert [r["event_type"] for r in ledger(simulated, sid)] == [e["event_type"] for e in events]
+
+
+def test_fonts_are_public_allowlisted_and_licensed(simulated):
+    for name in ("mplus1-latin.woff2", "spacegrotesk-latin.woff2"):
+        r = simulated.get(f"/demo/fonts/{name}")  # no token: @font-face can't send one, and fonts hold no data
+        assert r.status_code == 200 and r.headers["content-type"] == "font/woff2" and r.content[:4] == b"wOF2"
+        assert "immutable" in r.headers["cache-control"]
+    for name in ("OFL-MPLUS1.txt", "OFL-SpaceGrotesk.txt"):
+        assert "SIL OPEN FONT LICENSE" in simulated.get(f"/demo/fonts/{name}").text
+    for name in ("app.js", "..%2Fserver.py", "../app.js", "other.woff2"):
+        assert simulated.get(f"/demo/fonts/{name}").status_code == 404
+    assert "font-src 'self'" in simulated.get("/demo").headers["content-security-policy"]

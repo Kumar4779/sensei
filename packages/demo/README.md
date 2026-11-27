@@ -125,7 +125,7 @@ one small Fly.io machine: shared-cpu-1x, 256 MB, in Chicago (`ord`).
   session and run. The daily counter lives on a 1 GB volume (`/data`), so a
   restart or redeploy can't reset it; it rolls over at 00:00 UTC.
 - **Abuse limits** (`sensei_demo/limits.py`, configurable):
-  - 12 new sessions per client IP per hour, and 40 utterances per client IP
+  - 60 new sessions per client IP per hour, and 40 utterances per client IP
     per 10 minutes;
   - 8 simultaneous sessions. A session idle for 15 minutes stops counting,
     and switching scenario cards frees the visitor's own previous session.
